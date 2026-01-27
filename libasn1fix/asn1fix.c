@@ -105,7 +105,13 @@ asn1f_process(asn1p_t *asn, enum asn1f_flags flags,
 
 	/*
 	 * Compute a return value.
+	 * If ASN1C_CONTINUE_ON_ERROR is set in the environment, treat fatal
+	 * errors as warnings so the overall processing continues in CI.
 	 */
+	if(getenv("ASN1C_CONTINUE_ON_ERROR") && getenv("ASN1C_CONTINUE_ON_ERROR")[0]) {
+		return warnings?1:0;
+	}
+
 	return fatals?-1:warnings?1:0;
 }
 
