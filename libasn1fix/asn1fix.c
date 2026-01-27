@@ -555,6 +555,8 @@ asn1f_check_duplicate(arg_t *arg) {
 					arg->expr->_mark |= TM_NAMECLASH;
 					tmparg.expr->_mark |= TM_NAMECLASH;
 					RET2RVAL(1, rvalue);
+					/* Demoted: continue scanning without failing */
+					continue;
 				}
 				return -1;
 			}
