@@ -65,6 +65,13 @@ asn1f_process(asn1p_t *asn, enum asn1f_flags flags,
 		}
 	}
 
+	/* Auto-demote name clashes and prefer compound names when requested */
+	if(flags & A1F_AUTO_RENAME_CONFLICTS) {
+		arg.flags |= A1F_AUTO_RENAME_CONFLICTS;
+		flags &= ~A1F_AUTO_RENAME_CONFLICTS;
+		if(arg.debug) arg.debug(-1, "Auto-rename-conflicts enabled");
+	}
+
 	a1f_replace_me_with_proper_interface_arg = arg;
 
 	/*
@@ -541,8 +548,16 @@ asn1f_check_duplicate(arg_t *arg) {
 				diff_files ? " (" : "",
 				diff_files ? tmparg.mod->source_file_name : "",
 				diff_files ? ")" : "");
-			if(critical)
+			if(critical) {
+				/* If auto-rename flag enabled, demote fatal clash to warning
+				 * and mark both expressions for compound naming, otherwise fail */
+				if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
+					arg->expr->_mark |= TM_NAMECLASH;
+					tmparg.expr->_mark |= TM_NAMECLASH;
+					RET2RVAL(1, rvalue);
+				}
 				return -1;
+			}
 			RET2RVAL(1, rvalue);
 		}
 		if(tmparg.mod == arg->mod) break;

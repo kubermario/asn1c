@@ -118,6 +118,11 @@ main(int ac, char **av) {
                 asn1_fixer_flags |= A1F_EXTENDED_SizeConstraint;
             } else if(strcmp(optarg, "compound-names") == 0) {
                 asn1_compiler_flags |= A1C_COMPOUND_NAMES;
+            } else if(strcmp(optarg, "auto-rename-conflicts") == 0) {
+                /* Enable fixer auto-rename/demotion for name clashes and
+                 * prefer compound names for generated identifiers. */
+                asn1_fixer_flags |= A1F_AUTO_RENAME_CONFLICTS;
+                asn1_compiler_flags |= A1C_COMPOUND_NAMES;
             } else if(strcmp(optarg, "indirect-choice") == 0) {
                 asn1_compiler_flags |= A1C_INDIRECT_CHOICE;
             } else if(strncmp(optarg, "known-extern-type=", 18) == 0) {
