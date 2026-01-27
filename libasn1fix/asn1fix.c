@@ -137,22 +137,44 @@ asn1f_fix_module__phase_1(arg_t *arg) {
 			/* Compare only the OID. */
 			if(asn1p_oid_compare(omod->module_oid,
 					arg->mod->module_oid) == 0) {
-				FATAL("ASN.1 module %s in %s "
-					"has the same OBJECT IDENTIFIER"
-					" as module %s",
-					omod->ModuleName,
-					omod->source_file_name,
-					arg->mod->ModuleName
-				);
-				RET2RVAL(-1, rvalue);
+				/* Same OID: fatal by default, but demote when auto-rename requested */
+				if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
+					WARNING("ASN.1 module %s in %s has the same OBJECT IDENTIFIER as module %s; demoting to warning because auto-rename is enabled",
+						omod->ModuleName,
+						omod->source_file_name,
+						arg->mod->ModuleName);
+					RET2RVAL(1, rvalue);
+				} else {
+					FATAL("ASN.1 module %s in %s "
+						"has the same OBJECT IDENTIFIER"
+						" as module %s",
+						omod->ModuleName,
+						omod->source_file_name,
+						arg->mod->ModuleName
+					);
+					RET2RVAL(-1, rvalue);
+				}
 			} else if(sameNames) {
-				WARNING("ASN.1 module %s is defined more than once, with different OIDs", omod->ModuleName);
+				/* Same module name but different OIDs -> warn (already non-fatal)
+				 * If auto-rename is requested, still treat as a warning but
+				 * emit a clearer message. */
+				if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
+					WARNING("ASN.1 module %s is defined more than once with differing OIDs; auto-rename enabled, proceeding with warning", omod->ModuleName);
+				} else {
+					WARNING("ASN.1 module %s is defined more than once, with different OIDs", omod->ModuleName);
+				}
 				RET2RVAL(1, rvalue);
 			}
 		} else if(sameNames) {
-			FATAL("ASN.1 module %s is defined more than once",
-				omod->ModuleName);
-			RET2RVAL(-1, rvalue);
+			/* Same module name and no OIDs: fatal by default, but demote when auto-rename requested */
+			if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
+				WARNING("ASN.1 module %s is defined more than once; demoting to warning because auto-rename is enabled", omod->ModuleName);
+				RET2RVAL(1, rvalue);
+			} else {
+				FATAL("ASN.1 module %s is defined more than once",
+					omod->ModuleName);
+				RET2RVAL(-1, rvalue);
+			}
 		}
 	}
 
@@ -533,7 +555,14 @@ asn1f_check_duplicate(arg_t *arg) {
 			diff_files = strcmp(arg->mod->source_file_name,
 					tmparg.mod->source_file_name) ? 1 : 0;
 
-			LOG(critical,
+			/* If auto-rename is enabled, treat critical clashes as warnings
+			 * to avoid flooding logs with FATAL entries that will be
+			 * demoted and processed. */
+			{
+				int _effsev = critical;
+				if(critical && (arg->flags & A1F_AUTO_RENAME_CONFLICTS))
+					_effsev = 0; /* WARNING */
+				LOG(_effsev,
 			"ASN.1 expression \"%s\" at line %d of module %s\n"
 			"clashes with expression \"%s\" at line %d of module %s"
 			"%s%s%s.\n"
@@ -548,6 +577,7 @@ asn1f_check_duplicate(arg_t *arg) {
 				diff_files ? " (" : "",
 				diff_files ? tmparg.mod->source_file_name : "",
 				diff_files ? ")" : "");
+			}
 			if(critical) {
 				/* If auto-rename flag enabled, demote fatal clash to warning
 				 * and mark both expressions for compound naming, otherwise fail */
