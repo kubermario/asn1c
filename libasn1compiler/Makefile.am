@@ -1,11 +1,12 @@
-
 AM_CFLAGS = @ADD_CFLAGS@
 
 AM_CPPFLAGS =                       \
     -I$(top_srcdir)/libasn1common   \
     -I$(top_srcdir)/libasn1parser   \
     -I$(top_srcdir)/libasn1print    \
-    -I$(top_srcdir)/libasn1fix
+    -I$(top_srcdir)/libasn1fix      \
+    -I$(JAVA_HOME)/include          \
+    -I$(JAVA_HOME)/include/@JNI_PLATFORM@
 
 noinst_LTLIBRARIES = libasn1compiler.la
 
@@ -21,4 +22,6 @@ libasn1compiler_la_SOURCES =                \
     asn1c_compat.c asn1c_compat.h           \
     asn1c_ioc.c asn1c_ioc.h                 \
     asn1c_fdeps.c asn1c_fdeps.h             \
-    asn1c_internal.h
+    asn1c_internal.h \
+    clash_map.c \
+    clash_map.h

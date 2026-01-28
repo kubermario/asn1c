@@ -1,3 +1,49 @@
+#include <stdio.h>
+#include <string.h>
+// ...existing code...
+#include "asn1c_internal.h"  // for arg_t
+#include "asn1p_expr.h"      // for TM_NAMECLASH and _mark
+#include "clash_map.h"       // for map-based clash resolution
+static int prompt_clash_resolution(arg_t *arg) {
+	char input[32];
+	printf("\n[asn1c] Name clash detected for type '%s' in module '%s'.\n",
+		   arg->expr->Identifier, arg->expr->module->ModuleName);
+	printf("How do you want to resolve this clash?\n");
+	printf("  [k]eep this definition\n");
+	printf("  [s]kip this definition\n");
+	printf("  [r]ename this definition (auto-rename with module prefix)\n");
+	printf("  [a]pply this decision to all further clashes of this type\n");
+	printf("  [q]uit\n");
+	printf("Enter choice (k/s/r/a/q): ");
+	fflush(stdout);
+	if(fgets(input, sizeof(input), stdin) == NULL) return -1;
+	switch(input[0]) {
+		case 'k':
+		case 'K':
+			printf("Keeping this definition.\n");
+			return 1;
+		case 's':
+		case 'S':
+			printf("Skipping this definition.\n");
+			return 2;
+		case 'r':
+		case 'R':
+			printf("Renaming this definition with module prefix.\n");
+			arg->expr->_mark = (enum asn1p_expr_marker_e)(arg->expr->_mark | TM_NAMECLASH);
+			return 3;
+		case 'a':
+		case 'A':
+			printf("Apply this decision to all further clashes of this type (not yet implemented).\n");
+			return 4;
+		case 'q':
+		case 'Q':
+			printf("Quitting.\n");
+			return -1;
+		default:
+			printf("Invalid choice.\n");
+			return prompt_clash_resolution(arg);
+	}
+}
 #include "asn1c_internal.h"
 #include "asn1c_lang.h"
 #include "asn1c_out.h"
@@ -12,9 +58,19 @@ static int asn1c_detach_streams(asn1p_expr_t *expr);
 
 int
 asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_flags flags,
-		int argc, int optc, char **argv) {
+	int argc, int optc, char **argv,
+	int clash_interactive, const char *clash_policy, const char *clash_map_file) {
 	arg_t arg_s;
 	arg_t *arg = &arg_s;
+	clash_map_entry_t *clash_map_entries = NULL;
+	int clash_map_count = 0;
+	if (clash_map_file) {
+		clash_map_count = load_clash_map(clash_map_file, &clash_map_entries);
+		if (clash_map_count < 0) {
+			FATAL("[MAP] Could not load clash map file: %s", clash_map_file);
+			return -1;
+		}
+	}
 	asn1p_module_t *mod;
 	int ret;
 
@@ -64,7 +120,47 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 	}
 
 	if(c_name_clash(arg)) {
-		if(arg->flags & A1C_COMPOUND_NAMES) {
+		/* New clash handling logic */
+		if (clash_interactive) {
+			int res = prompt_clash_resolution(arg);
+			if(res == 1) {
+				/* Keep this definition, proceed */
+			} else if(res == 2) {
+				/* Skip this definition: mark as skipped or remove from tree (not yet implemented) */
+				FATAL("[INTERACTIVE] Skipping definition is not yet implemented.");
+				return -1;
+			} else if(res == 3) {
+				/* Rename: mark for module prefix, already set above */
+				/* Proceed */
+			} else if(res == 4) {
+				/* Apply to all: not yet implemented */
+				FATAL("[INTERACTIVE] Apply to all is not yet implemented.");
+				return -1;
+			} else {
+				FATAL("[INTERACTIVE] User quit or error.");
+				return -1;
+			}
+		} else if (clash_map_file && clash_map_entries) {
+			/* Map-based clash resolution */
+			const char *preferred_module = find_preferred_module(clash_map_entries, clash_map_count, arg->expr->Identifier);
+			if (preferred_module) {
+				if (strcmp(arg->expr->module->ModuleName, preferred_module) == 0) {
+					/* Keep this definition, proceed */
+				} else {
+					/* Skip this definition: mark as skipped or remove from tree (not yet implemented) */
+					FATAL("[MAP] Skipping definition of %s from module %s (preferred: %s). Skipping not yet implemented.",
+						arg->expr->Identifier, arg->expr->module->ModuleName, preferred_module);
+					return -1;
+				}
+			} else {
+				FATAL("[MAP] No entry for type '%s' in clash map. Aborting.", arg->expr->Identifier);
+				return -1;
+			}
+		} else if (clash_policy) {
+			// TODO: Implement policy-based clash resolution
+			FATAL("[POLICY] Name clash detected. Policy-based resolution not yet implemented.");
+			return -1;
+		} else if(arg->flags & A1C_COMPOUND_NAMES) {
 			FATAL("Name clashes encountered even with -fcompound-names flag");
 			/* Proceed further for better debugging. */
 		} else {

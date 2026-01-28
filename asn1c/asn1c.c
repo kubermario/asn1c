@@ -70,11 +70,23 @@ main(int ac, char **av) {
     int ch;                         /* Command line character */
     int i;                          /* Index in some loops */
     int exit_code = 0;              /* Exit code */
+    int clash_interactive = 0;      /* Interactive clash resolution */
+    char *clash_policy = NULL;      /* Clash policy string */
+    char *clash_map_file = NULL;    /* Clash map file */
 
     /*
      * Process command-line options.
      */
-    while((ch = getopt(ac, av, "D:d:EFf:g:hn:LPp:RS:vW:X")) != -1) switch(ch) {
+    while((ch = getopt(ac, av, "D:d:EFf:g:hn:LPp:RS:vW:X-z:C:M:")) != -1) switch(ch) {
+                case 'z': /* --clash-interactive */
+                    clash_interactive = 1;
+                    break;
+                case 'C': /* --clash-policy <policy> */
+                    clash_policy = strdup(optarg);
+                    break;
+                case 'M': /* --clash-map <file> */
+                    clash_map_file = strdup(optarg);
+                    break;
         case 'D':
             if(optarg && *optarg) {
                 size_t optarg_len = strlen(optarg);
@@ -420,7 +432,8 @@ main(int ac, char **av) {
      * of another language.
      */
     if(asn1_compile(asn, skeletons_dir, destdir ? destdir : "",
-                    asn1_compiler_flags, ac + optind, optind, av - optind)) {
+                    asn1_compiler_flags, ac + optind, optind, av - optind,
+                    clash_interactive, clash_policy, clash_map_file)) {
         exit_code = EX_SOFTWARE;
     }
 

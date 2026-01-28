@@ -18,6 +18,49 @@ m4_ifdef([AM_PROG_AR],
          [AM_PROG_AR],
          [AC_PATH_PROG(AR, ar, ar, $PATH:/usr/ucb:/usr/ccs/bin)])
 
+
+
+# Robust JDK auto-detection
+AC_ARG_VAR([JAVA_HOME], [Path to the Java installation])
+if test -z "$JAVA_HOME"; then
+  case "$host_os" in
+    darwin*)
+      if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+        JAVA_HOME=`/usr/libexec/java_home`
+      fi
+      ;;
+    linux*)
+      JAVA_BIN=`which java 2>/dev/null`
+      if test -n "$JAVA_BIN"; then
+        JAVA_HOME=`dirname $(dirname $(readlink -f $JAVA_BIN))`
+      fi
+      # Fallback to common locations if not found
+      if test -z "$JAVA_HOME" || ! test -f "$JAVA_HOME/include/jni.h"; then
+        for d in /usr/lib/jvm/java-1.8.0-openjdk* /usr/lib/jvm/java-11-openjdk* /usr/lib/jvm/java-17-openjdk* /usr/lib/jvm/java-1.8.0* /usr/lib/jvm/java-11* /usr/lib/jvm/java-17*; do
+          if test -f "$d/include/jni.h"; then
+            JAVA_HOME="$d"
+            break
+          fi
+        done
+      fi
+      ;;
+  esac
+fi
+
+# Final check: must have jni.h
+if test -z "$JAVA_HOME" || ! test -f "$JAVA_HOME/include/jni.h"; then
+  AC_MSG_ERROR([Could not detect a valid JDK. Please set JAVA_HOME to your JDK root.])
+fi
+
+# Set JNI_PLATFORM for platform-specific JNI headers
+case "$host_os" in
+  darwin*) JNI_PLATFORM=darwin ;;
+  linux*) JNI_PLATFORM=linux ;;
+  *) JNI_PLATFORM=unknown ;;
+esac
+AC_SUBST([JNI_PLATFORM])
+AC_SUBST([JAVA_HOME])
+
 AC_PROG_CXX
 CXXFLAGS="-std=c++11"
 
