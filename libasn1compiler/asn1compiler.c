@@ -93,6 +93,25 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 	 */
 	TQ_FOR(mod, &(asn->modules), mod_next) {
 		TQ_FOR(arg->expr, &(mod->members), next) {
+			/* Pre-filter: Skip non-preferred types if clash map is provided */
+			if (clash_map_file && clash_map_entries) {
+				const char *preferred_module = find_preferred_module(
+					clash_map_entries, clash_map_count, arg->expr->Identifier);
+
+				if (preferred_module) {
+					/* This type is in the clash map */
+					if (strcmp(mod->ModuleName, preferred_module) != 0) {
+						/* This is NOT the preferred module - skip this type */
+						DEBUG("[MAP] Skipping type '%s' from module '%s' (preferred: '%s')",
+							arg->expr->Identifier, mod->ModuleName, preferred_module);
+						continue;  /* Skip to next expression */
+					} else {
+						DEBUG("[MAP] Generating type '%s' from preferred module '%s'",
+							arg->expr->Identifier, preferred_module);
+					}
+				}
+			}
+
 			arg->ns = asn1_namespace_new_from_module(mod, 0);
 
 			compiler_streams_t *cs = NULL;
@@ -121,7 +140,13 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 
 	if(c_name_clash(arg)) {
 		/* New clash handling logic */
-		if (clash_interactive) {
+		if (clash_map_file && clash_map_entries) {
+			/* When using clash map, clashes should already be resolved via pre-filtering */
+			/* If we still have clashes, it means there's a type not in the clash map */
+			FATAL("[MAP] Name clash detected for types not in clash map. "
+			      "Please add all clashing types to the clash map file: %s", clash_map_file);
+			return -1;
+		} else if (clash_interactive) {
 			int res = prompt_clash_resolution(arg);
 			if(res == 1) {
 				/* Keep this definition, proceed */
@@ -138,22 +163,6 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 				return -1;
 			} else {
 				FATAL("[INTERACTIVE] User quit or error.");
-				return -1;
-			}
-		} else if (clash_map_file && clash_map_entries) {
-			/* Map-based clash resolution */
-			const char *preferred_module = find_preferred_module(clash_map_entries, clash_map_count, arg->expr->Identifier);
-			if (preferred_module) {
-				if (strcmp(arg->expr->module->ModuleName, preferred_module) == 0) {
-					/* Keep this definition, proceed */
-				} else {
-					/* Skip this definition: mark as skipped or remove from tree (not yet implemented) */
-					FATAL("[MAP] Skipping definition of %s from module %s (preferred: %s). Skipping not yet implemented.",
-						arg->expr->Identifier, arg->expr->module->ModuleName, preferred_module);
-					return -1;
-				}
-			} else {
-				FATAL("[MAP] No entry for type '%s' in clash map. Aborting.", arg->expr->Identifier);
 				return -1;
 			}
 		} else if (clash_policy) {
