@@ -140,12 +140,13 @@
      TOK_VideotexString = 356,
      TOK_VisibleString = 357,
      TOK_WITH = 358,
-     UTF8_BOM = 359,
-     TOK_EXCEPT = 360,
-     TOK_INTERSECTION = 361,
-     TOK_UNION = 362,
-     TOK_TwoDots = 363,
-     TOK_ThreeDots = 364
+     TOK_SUCCESSORS = 359,
+     UTF8_BOM = 360,
+     TOK_EXCEPT = 361,
+     TOK_INTERSECTION = 362,
+     TOK_UNION = 363,
+     TOK_TwoDots = 364,
+     TOK_ThreeDots = 365
    };
 #endif
 /* Tokens.  */
@@ -250,12 +251,13 @@
 #define TOK_VideotexString 356
 #define TOK_VisibleString 357
 #define TOK_WITH 358
-#define UTF8_BOM 359
-#define TOK_EXCEPT 360
-#define TOK_INTERSECTION 361
-#define TOK_UNION 362
-#define TOK_TwoDots 363
-#define TOK_ThreeDots 364
+#define TOK_SUCCESSORS 359
+#define UTF8_BOM 360
+#define TOK_EXCEPT 361
+#define TOK_INTERSECTION 362
+#define TOK_UNION 363
+#define TOK_TwoDots 364
+#define TOK_ThreeDots 365
 
 
 
@@ -298,12 +300,12 @@ typedef union YYSTYPE
 	} tv_nametag;
 }
 /* Line 1529 of yacc.c.  */
-#line 302 "asn1p_y.h"
+#line 304 "asn1p_y.tab.h"
 	YYSTYPE;
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1
 # define YYSTYPE_IS_TRIVIAL 1
 #endif
 
-extern YYSTYPE asn1p_lval;
+extern YYSTYPE yylval;
 
