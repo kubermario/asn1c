@@ -1076,7 +1076,16 @@ asn1constraint_compute_constraint_range(
 			range->incompatible = 1;
 			return range;
 		}
-		assert(ct->el_count == 1);
+		/* Handle constraints with multiple or zero elements gracefully */
+		if(ct->el_count == 0) {
+			/* No constraints specified, return empty range */
+			return range;
+		}
+		if(ct->el_count != 1) {
+			/* Multiple constraint elements - not supported, return incompatible */
+			range->incompatible = 1;
+			return range;
+		}
 		tmp = asn1constraint_compute_constraint_range(
 			dbg_name, expr_type, ct->elements[0], requested_ct_type, minmax,
 			exmet, cpr_flags);

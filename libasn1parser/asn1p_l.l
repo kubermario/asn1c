@@ -378,6 +378,7 @@ UTF8String		{
 VideotexString		return TOK_VideotexString;
 VisibleString		return TOK_VisibleString;
 WITH			return TOK_WITH;
+SUCCESSORS		return TOK_SUCCESSORS;
 
 
 <INITIAL,with_syntax>&[A-Z][A-Za-z0-9]*([-][A-Za-z0-9]+)*	{

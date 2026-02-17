@@ -663,12 +663,12 @@ asn1f_check_duplicate(arg_t *arg) {
 			diff_files = strcmp(arg->mod->source_file_name,
 					tmparg.mod->source_file_name) ? 1 : 0;
 
-			/* If auto-rename is enabled, treat critical clashes as warnings
-			 * to avoid flooding logs with FATAL entries that will be
-			 * demoted and processed. */
+			/* If auto-rename or priority-based resolution is enabled,
+			 * treat critical clashes as warnings to avoid flooding logs
+			 * with FATAL entries that will be demoted and processed. */
 			{
 				int _effsev = critical;
-				if(critical && (arg->flags & A1F_AUTO_RENAME_CONFLICTS))
+				if(critical && (arg->flags & (A1F_AUTO_RENAME_CONFLICTS | A1F_PRIORITY_BASED_RESOLUTION)))
 					_effsev = 0; /* WARNING */
 				LOG(_effsev,
 			"ASN.1 expression \"%s\" at line %d of module %s\n"

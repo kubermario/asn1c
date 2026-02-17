@@ -24,6 +24,11 @@ typedef struct asn1p_xports_s {
 	} identifier;
 
 	/*
+	 * WITH SUCCESSORS flag (X.680 clause 42)
+	 */
+	int with_successors;		/* 1 if WITH SUCCESSORS specified */
+
+	/*
 	 * Number of entities to import.
 	 */
 	TQ_HEAD(struct asn1p_expr_s)	xp_members;

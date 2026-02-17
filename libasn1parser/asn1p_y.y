@@ -258,6 +258,7 @@ static asn1p_module_t *currentModule;
 %token			TOK_VideotexString
 %token			TOK_VisibleString
 %token			TOK_WITH
+%token			TOK_SUCCESSORS
 %token			UTF8_BOM    "UTF-8 byte order mark"
 
 %nonassoc		TOK_EXCEPT
@@ -292,6 +293,7 @@ static asn1p_module_t *currentModule;
 %type	<a_xports>		ExportsBody
 %type	<a_expr>		ImportsElement
 %type	<a_expr>		ExportsElement
+%type	<a_int>			optWithSuccessors
 %type	<a_expr>		ExtensionAndException
 %type	<a_expr>		Type
 %type	<a_expr>		TaggedType
@@ -713,14 +715,20 @@ AssignedIdentifier:
 	/* | DefinedValue { $$.value = $1; }; // Handled through saved_aid */
 
 ImportsBundle:
-	ImportsList TOK_FROM TypeRefName AssignedIdentifier {
+	ImportsList TOK_FROM TypeRefName AssignedIdentifier optWithSuccessors {
 		$$ = $1;
 		$$->fromModuleName = $3;
 		$$->identifier = $4;
+		$$->with_successors = $5;
 		/* This stupid thing is used for look-back hack. */
 		saved_aid = $$->identifier.oid ? 0 : &($$->identifier);
 		checkmem($$);
 	}
+	;
+
+optWithSuccessors:
+	{ $$ = 0; }
+	| TOK_WITH TOK_SUCCESSORS { $$ = 1; }
 	;
 
 ImportsList:
