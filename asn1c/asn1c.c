@@ -73,6 +73,7 @@ main(int ac, char **av) {
     int clash_interactive = 0;      /* Interactive clash resolution */
     char *clash_policy = NULL;      /* Clash policy string */
     char *clash_map_file = NULL;    /* Clash map file */
+    char *priority_file = NULL;     /* Priority file for conflict resolution */
 
     /*
      * Process command-line options.
@@ -135,6 +136,10 @@ main(int ac, char **av) {
                  * prefer compound names for generated identifiers. */
                 asn1_fixer_flags |= A1F_AUTO_RENAME_CONFLICTS;
                 asn1_compiler_flags |= A1C_COMPOUND_NAMES;
+            } else if(strncmp(optarg, "priority-file=", 14) == 0) {
+                /* Priority-based conflict resolution */
+                priority_file = strdup(optarg + 14);
+                asn1_fixer_flags |= A1F_PRIORITY_BASED_RESOLUTION;
             } else if(strcmp(optarg, "indirect-choice") == 0) {
                 asn1_compiler_flags |= A1C_INDIRECT_CHOICE;
             } else if(strncmp(optarg, "known-extern-type=", 18) == 0) {
@@ -389,6 +394,18 @@ main(int ac, char **av) {
     }
 
     /*
+     * Load priority file for priority-based conflict resolution if specified
+     */
+    if(priority_file) {
+        ret = asn1f_load_priority_file(priority_file, NULL);
+        if(ret != 0) {
+            fprintf(stderr, "Failed to load priority file: %s\n", priority_file);
+            exit_code = EX_DATAERR;
+            goto cleanup;
+        }
+    }
+
+    /*
      * Process the ASN.1 specification: perform semantic checks,
      * expand references, etc, etc.
      * This function will emit necessary warnings and error messages.
@@ -438,6 +455,7 @@ main(int ac, char **av) {
     }
 
 cleanup:
+    asn1f_free_priority_map();  /* Clean up priority map */
     asn1p_delete(asn);
     asn1p_lex_destroy();
     if (exit_code) exit(exit_code);

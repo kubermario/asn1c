@@ -15,6 +15,7 @@ enum asn1f_flags {
 	A1F_DEBUG			= 0x01,	/* Print debugging output */
 	A1F_EXTENDED_SizeConstraint	= 0x02,	/* Enable constraint gen code */
 	A1F_AUTO_RENAME_CONFLICTS	= 0x04,	/* Auto-demote name clashes and prefer compound names */
+	A1F_PRIORITY_BASED_RESOLUTION	= 0x08,	/* Resolve conflicts based on module priority */
 };
 
 /*
@@ -34,5 +35,17 @@ int asn1f_process(asn1p_t *_asn,
  * Explicitly mark type as known.
  */
 int asn1f_make_known_external_type(const char *);
+
+/*
+ * Load module priority file for priority-based conflict resolution.
+ * Returns 0 on success, -1 on error.
+ */
+int asn1f_load_priority_file(const char *path,
+	void (*error_log_callback)(int _severity, const char *fmt, ...));
+
+/*
+ * Free priority map (called at cleanup).
+ */
+void asn1f_free_priority_map(void);
 
 #endif	/* ASN1FIX_H */

@@ -1,6 +1,78 @@
 #include "asn1fix_internal.h"
 #include "asn1fix.h"
 
+/*
+ * Priority-based conflict resolution support.
+ * Module priority map: lower number = higher priority.
+ */
+typedef struct module_priority_entry {
+	char *module_name;
+	int priority;
+	struct module_priority_entry *next;
+} module_priority_entry_t;
+
+static module_priority_entry_t *global_priority_map = NULL;
+
+/* Load priority file and build priority map */
+static int load_priority_file(const char *path, error_logger_f error_logger) {
+	FILE *f = fopen(path, "r");
+	if(!f) {
+		error_logger(1, "Failed to open priority file: %s", path);
+		return -1;
+	}
+
+	char line[256];
+	int line_num = 0;
+	while(fgets(line, sizeof(line), f)) {
+		line_num++;
+		/* Skip empty lines and comments */
+		if(line[0] == '\n' || line[0] == '#') continue;
+
+		/* Parse: ModuleName Priority */
+		char module_name[128];
+		int priority;
+		if(sscanf(line, "%127s %d", module_name, &priority) != 2) {
+			error_logger(0, "Warning: invalid line %d in priority file: %s", line_num, path);
+			continue;
+		}
+
+		/* Add to priority map */
+		module_priority_entry_t *entry = calloc(1, sizeof(module_priority_entry_t));
+		entry->module_name = strdup(module_name);
+		entry->priority = priority;
+		entry->next = global_priority_map;
+		global_priority_map = entry;
+
+		if(error_logger)
+			error_logger(-1, "Priority: %s = %d", module_name, priority);
+	}
+
+	fclose(f);
+	return 0;
+}
+
+/* Get priority for a module (-1 if not found) */
+static int get_module_priority(const char *module_name) {
+	if(!module_name || !global_priority_map) return -1;
+
+	for(module_priority_entry_t *e = global_priority_map; e; e = e->next) {
+		if(strcmp(e->module_name, module_name) == 0) {
+			return e->priority;
+		}
+	}
+	return -1;
+}
+
+/* Free priority map */
+static void free_priority_map(void) {
+	while(global_priority_map) {
+		module_priority_entry_t *next = global_priority_map->next;
+		free(global_priority_map->module_name);
+		free(global_priority_map);
+		global_priority_map = next;
+	}
+}
+
 /* Print everything to stderr */
 static void _default_error_logger(int _severity, const char *fmt, ...);
 
@@ -70,6 +142,13 @@ asn1f_process(asn1p_t *asn, enum asn1f_flags flags,
 		arg.flags |= A1F_AUTO_RENAME_CONFLICTS;
 		flags &= ~A1F_AUTO_RENAME_CONFLICTS;
 		if(arg.debug) arg.debug(-1, "Auto-rename-conflicts enabled");
+	}
+
+	/* Priority-based conflict resolution */
+	if(flags & A1F_PRIORITY_BASED_RESOLUTION) {
+		arg.flags |= A1F_PRIORITY_BASED_RESOLUTION;
+		flags &= ~A1F_PRIORITY_BASED_RESOLUTION;
+		if(arg.debug) arg.debug(-1, "Priority-based resolution enabled");
 	}
 
 	a1f_replace_me_with_proper_interface_arg = arg;
@@ -547,6 +626,35 @@ asn1f_check_duplicate(arg_t *arg) {
 			if ((!oid_exist && strcmp(tmparg.expr->module->ModuleName, arg->expr->module->ModuleName)) ||
 				(oid_exist && !asn1p_oid_compare(tmparg.expr->module->module_oid, arg->expr->module->module_oid))) {
 
+			/* Priority-based resolution for cross-module clashes */
+			if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
+				int prio_current = get_module_priority(arg->expr->module->ModuleName);
+				int prio_other = get_module_priority(tmparg.expr->module->ModuleName);
+
+				if(prio_current != -1 && prio_other != -1) {
+					/* Both modules have priorities - resolve based on priority */
+					if(prio_current < prio_other) {
+						/* Current module wins (lower number = higher priority) */
+						LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
+						       "suppressing from %s (priority %d)",
+						       arg->expr->Identifier, arg->expr->module->ModuleName, prio_current,
+						       tmparg.expr->module->ModuleName, prio_other);
+						tmparg.expr->_mark |= TM_SUPPRESSED;
+						continue;
+					} else if(prio_other < prio_current) {
+						/* Other module wins */
+						LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
+						       "suppressing from %s (priority %d)",
+						       tmparg.expr->Identifier, tmparg.expr->module->ModuleName, prio_other,
+						       arg->expr->module->ModuleName, prio_current);
+						arg->expr->_mark |= TM_SUPPRESSED;
+						continue;
+					}
+					/* Equal priority - fall through to marking both with TM_NAMECLASH */
+				}
+			}
+
+			/* Default behavior: mark both for compound naming */
 				tmparg.expr->_mark |= TM_NAMECLASH;
 				arg->expr->_mark |= TM_NAMECLASH;
 				continue;
@@ -579,6 +687,36 @@ asn1f_check_duplicate(arg_t *arg) {
 				diff_files ? ")" : "");
 			}
 			if(critical) {
+				/* Priority-based conflict resolution */
+				if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
+					int prio_current = get_module_priority(arg->mod->ModuleName);
+					int prio_other = get_module_priority(tmparg.mod->ModuleName);
+
+					if(prio_current != -1 && prio_other != -1) {
+						/* Both modules have priorities defined */
+						if(prio_current < prio_other) {
+							/* Current module wins (lower number = higher priority) */
+							LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
+							       "suppressing from %s (priority %d)",
+							       arg->expr->Identifier, arg->mod->ModuleName, prio_current,
+							       tmparg.mod->ModuleName, prio_other);
+							tmparg.expr->_mark |= TM_SUPPRESSED;
+							RET2RVAL(1, rvalue);
+							continue;
+						} else if(prio_other < prio_current) {
+							/* Other module wins */
+							LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
+							       "suppressing from %s (priority %d)",
+							       tmparg.expr->Identifier, tmparg.mod->ModuleName, prio_other,
+							       arg->mod->ModuleName, prio_current);
+							arg->expr->_mark |= TM_SUPPRESSED;
+							RET2RVAL(1, rvalue);
+							continue;
+						}
+						/* Equal priority - fall through to auto-rename or fatal */
+					}
+				}
+
 				/* If auto-rename flag enabled, demote fatal clash to warning
 				 * and mark both expressions for compound naming, otherwise fail */
 				if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
@@ -621,10 +759,25 @@ _default_error_logger(int _severity, const char *fmt, ...) {
 	case 0: pfx = "WARNING: "; break;
 	case 1: pfx = "FATAL: "; break;
 	}
-	
+
 	fprintf(stderr, "%s", pfx);
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
 	fprintf(stderr, "\n");
+}
+
+/*
+ * Public API for priority-based conflict resolution
+ */
+int
+asn1f_load_priority_file(const char *path, error_logger_f error_logger) {
+	if(!error_logger)
+		error_logger = _default_error_logger;
+	return load_priority_file(path, error_logger);
+}
+
+void
+asn1f_free_priority_map(void) {
+	free_priority_map();
 }

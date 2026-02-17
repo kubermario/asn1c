@@ -112,6 +112,13 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 				}
 			}
 
+			/* Skip types suppressed by priority-based conflict resolution */
+			if (arg->expr->_mark & TM_SUPPRESSED) {
+				DEBUG("[PRIORITY] Skipping suppressed type '%s' from module '%s'",
+					arg->expr->Identifier, mod->ModuleName);
+				continue;  /* Skip to next expression */
+			}
+
 			arg->ns = asn1_namespace_new_from_module(mod, 0);
 
 			compiler_streams_t *cs = NULL;
