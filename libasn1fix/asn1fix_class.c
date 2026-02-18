@@ -65,6 +65,7 @@ asn1f_class_access(arg_t *arg, asn1p_expr_t *rhs_pspecs, const asn1p_ref_t *ref)
 
 	switch(classfield->expr_type) {
 	case A1TC_CLASSFIELD_TFS:
+		/* TypeFieldSpec: &Type */
 		if(TQ_FIRST(&classfield->members)) {
 			/* Already have something */
 		} else {
@@ -75,14 +76,103 @@ asn1f_class_access(arg_t *arg, asn1p_expr_t *rhs_pspecs, const asn1p_ref_t *ref)
 		}
 		/* Fall through */
 	case A1TC_CLASSFIELD_FTVFS:
+		/* FixedTypeValueFieldSpec: &value INTEGER */
 		expr = TQ_FIRST(&classfield->members);
 		assert(expr);
 		return expr;
 		break;
+
+	case A1TC_CLASSFIELD_VTVFS:
+		/* VariableTypeValueFieldSpec: &value &Type */
+		/* The value's type depends on another field referenced in classfield->reference */
+		if(classfield->reference) {
+			/* Return a reference expression pointing to the governing field */
+			expr = asn1p_expr_new(classfield->_lineno, arg->mod);
+			expr->Identifier = classfield->Identifier;
+			expr->expr_type = A1TC_REFERENCE;
+			expr->meta_type = AMT_TYPEREF;
+			expr->reference = classfield->reference;
+			return expr;
+		} else {
+			/* No governing type field - treat as ANY */
+			expr = asn1p_expr_new(classfield->_lineno, arg->mod);
+			expr->expr_type = ASN_TYPE_ANY;
+			expr->meta_type = AMT_TYPE;
+			return expr;
+		}
+		break;
+
+	case A1TC_CLASSFIELD_FTVSFS:
+		/* FixedTypeValueSetFieldSpec: &ValueSet INTEGER */
+		expr = TQ_FIRST(&classfield->members);
+		if(expr) {
+			return expr;
+		} else {
+			/* No type defined - shouldn't happen but handle gracefully */
+			DEBUG("%s.%s: FixedTypeValueSetFieldSpec has no type member",
+				ioclass->Identifier, classfield->Identifier);
+			errno = EINVAL;
+			return NULL;
+		}
+		break;
+
+	case A1TC_CLASSFIELD_VTVSFS:
+		/* VariableTypeValueSetFieldSpec: &ValueSet &Type */
+		/* Similar to VTVFS but for value sets */
+		if(classfield->reference) {
+			expr = asn1p_expr_new(classfield->_lineno, arg->mod);
+			expr->Identifier = classfield->Identifier;
+			expr->expr_type = A1TC_REFERENCE;
+			expr->meta_type = AMT_TYPEREF;
+			expr->reference = classfield->reference;
+			return expr;
+		} else {
+			DEBUG("%s.%s: VariableTypeValueSetFieldSpec has no governing type",
+				ioclass->Identifier, classfield->Identifier);
+			errno = EINVAL;
+			return NULL;
+		}
+		break;
+
+	case A1TC_CLASSFIELD_OFS:
+		/* ObjectFieldSpec: &object SOME-CLASS */
+		if(classfield->reference) {
+			/* Return reference to the object class */
+			expr = asn1p_expr_new(classfield->_lineno, arg->mod);
+			expr->Identifier = classfield->Identifier;
+			expr->expr_type = A1TC_REFERENCE;
+			expr->meta_type = AMT_TYPEREF;
+			expr->reference = classfield->reference;
+			return expr;
+		} else {
+			DEBUG("%s.%s: ObjectFieldSpec has no class reference",
+				ioclass->Identifier, classfield->Identifier);
+			errno = EINVAL;
+			return NULL;
+		}
+		break;
+
+	case A1TC_CLASSFIELD_OSFS:
+		/* ObjectSetFieldSpec: &objects SOME-CLASS */
+		if(classfield->reference) {
+			/* Return reference to the object class */
+			expr = asn1p_expr_new(classfield->_lineno, arg->mod);
+			expr->Identifier = classfield->Identifier;
+			expr->expr_type = A1TC_REFERENCE;
+			expr->meta_type = AMT_TYPEREF;
+			expr->reference = classfield->reference;
+			return expr;
+		} else {
+			DEBUG("%s.%s: ObjectSetFieldSpec has no class reference",
+				ioclass->Identifier, classfield->Identifier);
+			errno = EINVAL;
+			return NULL;
+		}
+		break;
+
 	default:
-		FATAL("%s.%s: field type not yet supported. "
-			"Consider donation to the asn1c author.",
-			ioclass->Identifier, classfield->Identifier);
+		FATAL("%s.%s: Unknown class field type %d",
+			ioclass->Identifier, classfield->Identifier, classfield->expr_type);
 		return NULL;
 	}
 
