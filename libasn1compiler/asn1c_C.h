@@ -30,6 +30,7 @@ static asn1_language_map_t asn1_lang_C[] __attribute__ ((unused)) = {
 	{ AMT_TYPE, ASN_CONSTR_SET_OF,		asn1c_lang_C_type_SEx_OF },
 	{ AMT_TYPEREF, ASN_CONSTR_SET_OF,	asn1c_lang_C_type_SEx_OF },
 	{ AMT_TYPE, ASN_CONSTR_CHOICE,		asn1c_lang_C_type_CHOICE },
+	{ AMT_TYPE, ASN_CONSTR_OPEN_TYPE,	asn1c_lang_C_type_CHOICE },
 	/*
 	 * ANY type (deprecated)
 	 */

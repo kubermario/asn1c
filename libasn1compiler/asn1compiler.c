@@ -114,9 +114,16 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 
 			/* Skip types suppressed by priority-based conflict resolution */
 			if (arg->expr->_mark & TM_SUPPRESSED) {
-				DEBUG("[PRIORITY] Skipping suppressed type '%s' from module '%s'",
+				/* Always log suppressed types to stderr for debugging */
+				fprintf(stderr, "[PRIORITY] Skipping suppressed type '%s' from module '%s'\n",
 					arg->expr->Identifier, mod->ModuleName);
 				continue;  /* Skip to next expression */
+			}
+
+			/* Always log CPM types being processed */
+			if (strcmp(mod->ModuleName, "CPM-PDU-Descriptions") == 0) {
+				fprintf(stderr, "[CPM] Processing type '%s' (mark=0x%x)\n",
+					arg->expr->Identifier, arg->expr->_mark);
 			}
 
 			arg->ns = asn1_namespace_new_from_module(mod, 0);
