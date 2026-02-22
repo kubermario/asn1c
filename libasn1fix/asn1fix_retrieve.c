@@ -145,25 +145,50 @@ asn1f_lookup_module(arg_t *arg, const char *module_name, const asn1p_oid_t *oid)
 
 	/*
 	 * Perform lookup using OID or module_name.
+	 * When OIDs don't match exactly, fall back to name-only matching to handle
+	 * version mismatches between modules (e.g., different minor versions).
 	 */
+	asn1p_module_t *name_match_fallback = NULL;
+
 	TQ_FOR(mod, &(arg->asn->modules), mod_next) {
 		if(oid) {
 			if(mod->module_oid) {
 				if(asn1p_oid_compare(oid,
 					mod->module_oid)) {
+					/* OIDs don't match - save name match as fallback */
+					if(strcmp(module_name, mod->ModuleName) == 0) {
+						if(name_match_fallback == NULL) {
+							name_match_fallback = mod;
+							DEBUG("\tSaved fallback for module \"%s\" with OID mismatch", module_name);
+						}
+					}
 					continue;
 				} else {
-					/* Match! Even if name doesn't. */
+					/* Exact match: name and OID */
+					DEBUG("\tExact OID match for module \"%s\"", mod->ModuleName);
 					return mod;
 				}
 			} else {
+				/* Module has no OID - check name match for fallback */
+				if(strcmp(module_name, mod->ModuleName) == 0) {
+					if(name_match_fallback == NULL) {
+						name_match_fallback = mod;
+						DEBUG("\tSaved fallback for module \"%s\" without OID", module_name);
+					}
+				}
 				/* Not match, even if name is the same. */
 				continue;
 			}
 		}
-	
+
 		if(strcmp(module_name, mod->ModuleName) == 0)
 			return mod;
+	}
+
+	/* Fallback: Use name-only match if no exact OID match was found */
+	if(name_match_fallback != NULL) {
+		WARNING("Using name-matched module \"%s\" despite OID mismatch", module_name);
+		return name_match_fallback;
 	}
 
 	DEBUG("\tModule \"%s\" not found", module_name);
