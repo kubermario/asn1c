@@ -626,7 +626,20 @@ asn1f_check_duplicate(arg_t *arg) {
 			if ((!oid_exist && strcmp(tmparg.expr->module->ModuleName, arg->expr->module->ModuleName)) ||
 				(oid_exist && !asn1p_oid_compare(tmparg.expr->module->module_oid, arg->expr->module->module_oid))) {
 
-			/* Priority-based resolution for cross-module clashes */
+			/* Compound-name aware conflict resolution:
+			 * When -fcompound-names is enabled, cross-module conflicts get prefixes instead of suppression.
+			 * This allows both ManagementContainer (CPM) and ManagementContainer (DENM) to coexist as
+			 * CPM_ManagementContainer and DENM_ManagementContainer. */
+			if((arg->flags & A1F_AUTO_RENAME_CONFLICTS)) {
+				/* Compound names enabled: mark both for compound naming, no suppression */
+				LOG(0, "Compound-name resolution: keeping '%s' from both %s and %s with module prefixes",
+				       arg->expr->Identifier, arg->expr->module->ModuleName, tmparg.expr->module->ModuleName);
+				tmparg.expr->_mark |= TM_NAMECLASH;
+				arg->expr->_mark |= TM_NAMECLASH;
+				continue;
+			}
+
+			/* Priority-based resolution for cross-module clashes (when compound names not enabled) */
 			if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
 				int prio_current = get_module_priority(arg->expr->module->ModuleName);
 				int prio_other = get_module_priority(tmparg.expr->module->ModuleName);
@@ -687,6 +700,18 @@ asn1f_check_duplicate(arg_t *arg) {
 				diff_files ? ")" : "");
 			}
 			if(critical) {
+				/* Compound-name aware conflict resolution (same-module case):
+				 * Even within same module, if compound names enabled, mark for compound naming */
+				if((arg->flags & A1F_AUTO_RENAME_CONFLICTS) && strcmp(arg->expr->module->ModuleName, tmparg.expr->module->ModuleName)) {
+					/* Different modules with compound names: mark for compound naming */
+					LOG(0, "Compound-name resolution (critical): keeping '%s' from both %s and %s with module prefixes",
+					       arg->expr->Identifier, arg->expr->module->ModuleName, tmparg.expr->module->ModuleName);
+					arg->expr->_mark |= TM_NAMECLASH;
+					tmparg.expr->_mark |= TM_NAMECLASH;
+					RET2RVAL(1, rvalue);
+					continue;
+				}
+
 				/* Priority-based conflict resolution */
 				if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
 					int prio_current = get_module_priority(arg->mod->ModuleName);

@@ -130,6 +130,10 @@ main(int ac, char **av) {
             } else if(strcmp(optarg, "bless-SIZE") == 0) {
                 asn1_fixer_flags |= A1F_EXTENDED_SizeConstraint;
             } else if(strcmp(optarg, "compound-names") == 0) {
+                /* Enable compound names in both fixer and compiler:
+                 * Fixer uses A1F_AUTO_RENAME_CONFLICTS to mark cross-module conflicts for compound naming
+                 * instead of priority-based suppression */
+                asn1_fixer_flags |= A1F_AUTO_RENAME_CONFLICTS;
                 asn1_compiler_flags |= A1C_COMPOUND_NAMES;
             } else if(strcmp(optarg, "auto-rename-conflicts") == 0) {
                 /* Enable fixer auto-rename/demotion for name clashes and
