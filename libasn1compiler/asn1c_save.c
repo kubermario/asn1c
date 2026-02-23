@@ -393,6 +393,11 @@ asn1c_save_compiled_output(arg_t *arg, const char *datadir, const char *destdir,
 
         TQ_FOR(mod, &(arg->asn->modules), mod_next) {
             TQ_FOR(arg->expr, &(mod->members), next) {
+                /* Skip suppressed types - they were marked as duplicates during conflict resolution */
+                if(arg->expr->_mark & TM_SUPPRESSED) {
+                    continue;
+                }
+
                 if(asn1_lang_map[arg->expr->meta_type][arg->expr->expr_type]
                        .type_cb) {
                     ret = asn1c_dump_streams(arg, deps, destdir, optc, argv);
