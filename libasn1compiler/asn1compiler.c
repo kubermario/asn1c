@@ -120,12 +120,6 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 				continue;  /* Skip to next expression */
 			}
 
-			/* Always log CPM types being processed */
-			if (strcmp(mod->ModuleName, "CPM-PDU-Descriptions") == 0) {
-				fprintf(stderr, "[CPM] Processing type '%s' (mark=0x%x)\n",
-					arg->expr->Identifier, arg->expr->_mark);
-			}
-
 			arg->ns = asn1_namespace_new_from_module(mod, 0);
 
 			compiler_streams_t *cs = NULL;

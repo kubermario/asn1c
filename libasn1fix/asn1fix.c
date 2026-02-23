@@ -628,8 +628,7 @@ asn1f_check_duplicate(arg_t *arg) {
 
 			/* Compound-name aware conflict resolution:
 			 * When -fcompound-names is enabled, cross-module conflicts get prefixes instead of suppression.
-			 * This allows both ManagementContainer (CPM) and ManagementContainer (DENM) to coexist as
-			 * CPM_ManagementContainer and DENM_ManagementContainer. */
+			 * Example: Two modules defining 'Container' will generate Module1_Container and Module2_Container. */
 			if((arg->flags & A1F_AUTO_RENAME_CONFLICTS)) {
 				/* Compound names enabled: mark both for compound naming, no suppression */
 				LOG(0, "Compound-name resolution: keeping '%s' from both %s and %s with module prefixes",

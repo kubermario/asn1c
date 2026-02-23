@@ -1080,8 +1080,7 @@ asn1c_lang_C_OpenType(arg_t *arg, asn1c_ioc_table_and_objset_t *opt_ioc,
     /* CRITICAL FIX: Add the IOC-generated type to the module's member list
      * so it gets saved as a separate .c/.h file pair. Without this, the type
      * is processed but never written to disk, causing "file not found" errors
-     * during compilation. This fixes CPM ConstraintWrappedCpmContainers and
-     * similar IOC types not being generated. */
+     * during compilation. This ensures all IOC-derived types are properly generated. */
     asn1p_module_t *module = arg->expr->module;
     if(module) {
         /* Add to module's member list so it gets saved */
@@ -2991,7 +2990,7 @@ emit_type_DEF(arg_t *arg, asn1p_expr_t *expr, enum tvm_compat tv_mode, int tags_
 		if (!p2)
 			p2 = strdup(p);
 
-		/* ETSI ITS: Ensure OPEN_TYPE.h is included when referencing asn_OP_OPEN_TYPE */
+		/* Ensure OPEN_TYPE.h is included when referencing asn_OP_OPEN_TYPE */
 		if (strcmp(p2, "OPEN_TYPE") == 0) {
 			GEN_INCLUDE_STD("OPEN_TYPE");
 		}
