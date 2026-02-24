@@ -56,8 +56,29 @@ asn1c_get_ioc_table_from_objset(arg_t *arg, const asn1p_ref_t *objset_ref, asn1p
         ioc_tao.objset = objset;
         ioc_tao.fatal_error = 0;
     } else {
-        FATAL("Information Object Set %s contains no objects at line %d",
+        /* Empty extensible IOC sets (e.g., "::= { ... }") are valid ASN.1.
+         * Create an empty table to allow RegionalExtension types to be generated.
+         * This is common in ETSI ITS infrastructure services (MAPEM, SPATEM)
+         * for regional extension points that may be populated in the future.
+         */
+        DEBUG("Information Object Set %s is empty (extensible) at line %d - creating empty table",
               objset->Identifier, objset->_lineno);
+
+        /* Create empty extensible IOC table */
+        asn1p_ioc_table_t *empty_table = asn1p_ioc_table_new();
+        if(!empty_table) {
+            FATAL("Failed to allocate empty IOC table for %s", objset->Identifier);
+            return ioc_tao; /* Return with fatal_error = 1 */
+        }
+        empty_table->extensible = 1; /* Mark as extensible */
+        empty_table->rows = 0;       /* No rows */
+
+        /* Store it in the objset so it can be freed later */
+        objset->ioc_table = empty_table;
+
+        ioc_tao.ioct = empty_table;
+        ioc_tao.objset = objset;
+        ioc_tao.fatal_error = 0;
     }
 
     return ioc_tao;
@@ -257,27 +278,33 @@ emit_ioc_table(arg_t *arg, asn1p_expr_t *context, asn1c_ioc_table_and_objset_t i
     }
 
     /* Emit the Information Object Set */
-    OUT("static const asn_ioc_cell_t asn_IOS_%s_%d_rows[] = {\n",
-        MKID(ioc_tao.objset), ioc_tao.objset->_type_unique_index);
-    INDENT(+1);
+    /* For empty tables, still emit array declaration but with size 1 to avoid C syntax errors */
+    if(ioc_tao.ioct->rows == 0) {
+        OUT("static const asn_ioc_cell_t asn_IOS_%s_%d_rows[1]; /* Empty extensible IOC set */\n",
+            MKID(ioc_tao.objset), ioc_tao.objset->_type_unique_index);
+    } else {
+        OUT("static const asn_ioc_cell_t asn_IOS_%s_%d_rows[] = {\n",
+            MKID(ioc_tao.objset), ioc_tao.objset->_type_unique_index);
+        INDENT(+1);
 
-    for(size_t rn = 0; rn < ioc_tao.ioct->rows; rn++) {
-        asn1p_ioc_row_t *row = ioc_tao.ioct->row[rn];
-        columns = columns ? columns : row->columns;
-        if(columns != row->columns) {
-            FATAL("Information Object Set %s row column mismatch on line %d",
-                  ioc_tao.objset->Identifier, ioc_tao.objset->_lineno);
-            return -1;
+        for(size_t rn = 0; rn < ioc_tao.ioct->rows; rn++) {
+            asn1p_ioc_row_t *row = ioc_tao.ioct->row[rn];
+            columns = columns ? columns : row->columns;
+            if(columns != row->columns) {
+                FATAL("Information Object Set %s row column mismatch on line %d",
+                      ioc_tao.objset->Identifier, ioc_tao.objset->_lineno);
+                return -1;
+            }
+            for(size_t cn = 0; cn < row->columns; cn++) {
+                if(rn || cn) OUT(",\n");
+                emit_ioc_cell(arg, &row->column[cn]);
+            }
         }
-        for(size_t cn = 0; cn < row->columns; cn++) {
-            if(rn || cn) OUT(",\n");
-            emit_ioc_cell(arg, &row->column[cn]);
-        }
+        OUT("\n");
+
+        INDENT(-1);
+        OUT("};\n");
     }
-    OUT("\n");
-
-    INDENT(-1);
-    OUT("};\n");
 
     OUT("static const asn_ioc_set_t asn_IOS_%s_%d[] = {\n",
         MKID(ioc_tao.objset), ioc_tao.objset->_type_unique_index);

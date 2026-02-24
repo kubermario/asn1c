@@ -236,10 +236,17 @@ asn1c_compile_expr(arg_t *arg, const asn1c_ioc_table_and_objset_t *opt_ioc) {
 				? "compiling" : "unused, skipping",
 				expr->specializations.pspecs_count);
 			for(i = 0; i<expr->specializations.pspecs_count; i++) {
-				arg->expr = expr->specializations
-						.pspec[i].my_clone;
+				asn1p_expr_t *spec_clone = expr->specializations.pspec[i].my_clone;
+				DEBUG("  Compiling specialization %d: %s (spec_index=%d, meta=%d, expr_type=%d)",
+				      i, spec_clone->Identifier ? spec_clone->Identifier : "(anonymous)",
+				      spec_clone->spec_index, spec_clone->meta_type, spec_clone->expr_type);
+				arg->expr = spec_clone;
 				ret = asn1c_compile_expr(arg, opt_ioc);
-				if(ret) break;
+				if(ret) {
+					DEBUG("  Specialization %d compilation failed with ret=%d", i, ret);
+					break;
+				}
+				DEBUG("  Specialization %d compiled successfully", i);
 			}
 			arg->expr = expr;	/* Restore */
 		} else {

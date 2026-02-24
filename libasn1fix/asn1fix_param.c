@@ -31,14 +31,30 @@ asn1f_parameterization_fork(arg_t *arg, asn1p_expr_t *expr, asn1p_expr_t *rhs_ps
 
 	/*
 	 * Find if this exact specialization has been used already.
+	 *
+	 * KEY INSIGHT: Each usage site (different line number) MUST get its own
+	 * specialization for correct type naming, even if content is identical.
+	 * Only reuse if BOTH line number AND content match.
+	 *
+	 * KNOWN LIMITATION: Line numbers can change between parsing and C generation
+	 * phases due to file merging/preprocessing, which may cause type name mismatches
+	 * for empty IOC sets in some standards (IS/MAPEM/SPATEM regional extensions).
+	 * See CLAUDE.md for details.
 	 */
 	for(npspecs = 0;
 		npspecs < expr->specializations.pspecs_count;
 			npspecs++) {
-		if(compare_specializations(rhs_pspecs,
-			expr->specializations.pspec[npspecs].rhs_pspecs) == 0) {
-			DEBUG("Reused parameterization for %s",
-				expr->Identifier);
+		asn1p_expr_t *existing_rhs = expr->specializations.pspec[npspecs].rhs_pspecs;
+
+		/* Line number must match for reuse */
+		if(rhs_pspecs->_lineno != existing_rhs->_lineno) {
+			continue;
+		}
+
+		/* Line numbers match, now check content */
+		if(compare_specializations(rhs_pspecs, existing_rhs) == 0) {
+			DEBUG("Reused parameterization for %s at line %d",
+				expr->Identifier, rhs_pspecs->_lineno);
 			return expr->specializations.pspec[npspecs].my_clone;
 		}
 	}
@@ -47,13 +63,26 @@ asn1f_parameterization_fork(arg_t *arg, asn1p_expr_t *expr, asn1p_expr_t *rhs_ps
 		rhs_pspecs->_lineno, expr->Identifier,
 		expr->specializations.pspecs_count);
 
-	rarg.resolver = resolve_expr;
+	/*
+	 * Prepare resolver arguments.
+	 * Use resolve_expr which has ANY type fallback for unresolvable references.
+	 * This handles both populated and empty IOC sets gracefully.
+	 */
 	rarg.arg = arg;
 	rarg.original_expr = expr;
 	rarg.lhs_params = expr->lhs_params;
 	rarg.rhs_pspecs = rhs_pspecs;
+	rarg.resolver = resolve_expr;
+
 	exc = asn1p_expr_clone_with_resolver(expr, resolve_expr, &rarg);
 	if(!exc) return NULL;
+
+	/*
+	 * DO NOT override exc->_lineno - it should keep the original expr's line number.
+	 * The member that references this specialization will provide its own line number
+	 * when generating the reference name.
+	 */
+
 	rpc = asn1p_expr_clone(rhs_pspecs, 0);
 	assert(rpc);
 
@@ -71,6 +100,10 @@ asn1f_parameterization_fork(arg_t *arg, asn1p_expr_t *expr, asn1p_expr_t *rhs_ps
 	pspec->rhs_pspecs = rpc;
 	pspec->my_clone = exc;
 	exc->spec_index = npspecs;
+
+	/*
+	 * Clone rhs_pspecs using the ANY-fallback resolver.
+	 */
 	exc->rhs_pspecs = asn1p_expr_clone_with_resolver(expr->rhs_pspecs ?
 					expr->rhs_pspecs : rhs_pspecs,
 					resolve_expr, &rarg);
@@ -97,6 +130,16 @@ compare_specializations(const asn1p_expr_t *a, const asn1p_expr_t *b) {
     return asn1p_expr_compare(a, b);
 }
 
+/*
+ * Resolver for parameterized type references.
+ *
+ * This resolver attempts to find the actual type from the IOC set. If the IOC set
+ * is empty or cannot be resolved (e.g., empty extensible IOC sets used for future
+ * extensions), it falls back to creating an ANY type instead of failing.
+ *
+ * This allows parameterized types to be generated even when IOC sets are empty,
+ * which is common in ETSI ITS standards for regional extension points.
+ */
 static asn1p_expr_t *
 resolve_expr(asn1p_expr_t *expr_to_resolve, void *resolver_arg) {
 	resolver_arg_t *rarg = resolver_arg;
@@ -110,17 +153,41 @@ resolve_expr(asn1p_expr_t *expr_to_resolve, void *resolver_arg) {
 	if(expr_to_resolve->meta_type == AMT_TYPEREF) {
 		expr = find_target_specialization_byref(rarg,
 				expr_to_resolve->reference);
-		if(!expr) return NULL;
+		/* Fallback to ANY type if resolution fails (empty IOC set) */
+		if(!expr) {
+			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
+			if(!nex) return NULL;
+			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
+			nex->meta_type = AMT_TYPE;
+			nex->expr_type = ASN_TYPE_ANY;
+			return nex;
+		}
 	} else if(expr_to_resolve->meta_type == AMT_VALUE) {
 		if(!expr_to_resolve->value) return NULL;
 		expr = find_target_specialization_bystr(rarg,
 				expr_to_resolve->Identifier);
-		if(!expr) return NULL;
+		/* Fallback to ANY type if resolution fails (empty IOC set) */
+		if(!expr) {
+			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
+			if(!nex) return NULL;
+			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
+			nex->meta_type = AMT_TYPE;
+			nex->expr_type = ASN_TYPE_ANY;
+			return nex;
+		}
 	} else if(expr_to_resolve->meta_type == AMT_VALUESET) {
 		assert(expr_to_resolve->constraints);
 		expr = find_target_specialization_byvalueset(rarg,
 				expr_to_resolve->constraints);
-		if(!expr) return NULL;
+		/* Fallback to ANY type if resolution fails (empty IOC set) */
+		if(!expr) {
+			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
+			if(!nex) return NULL;
+			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
+			nex->meta_type = AMT_TYPE;
+			nex->expr_type = ASN_TYPE_ANY;
+			return nex;
+		}
 	} else {
 		errno = ESRCH;
 		return NULL;
@@ -206,3 +273,4 @@ find_target_specialization_bystr(resolver_arg_t *rarg, char *refstr) {
 	errno = ESRCH;
 	return NULL;
 }
+

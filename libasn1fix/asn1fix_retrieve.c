@@ -352,6 +352,15 @@ asn1f_lookup_symbol_impl(arg_t *arg, asn1p_expr_t *rhs_pspecs, const asn1p_ref_t
              */
             ref_tc = asn1f_lookup_in_module(ns_el->u.space.module, identifier);
             if(ref_tc) {
+                /* Log every type lookup to understand what's being resolved */
+                FILE *logf = fopen("/tmp/asn1c-param-debug.log", "a");
+                if(logf) {
+                    fprintf(logf, "[LOOKUP] Found type '%s': rhs_pspecs=%s, lhs_params=%s\n",
+                            ref_tc->Identifier ? ref_tc->Identifier : "(anon)",
+                            rhs_pspecs ? "YES" : "NO",
+                            ref_tc->lhs_params ? "YES" : "NO");
+                    fclose(logf);
+                }
                 /* It is acceptable that we don't use input parameters */
                 if(rhs_pspecs && !ref_tc->lhs_params) {
                     WARNING(
@@ -372,8 +381,21 @@ asn1f_lookup_symbol_impl(arg_t *arg, asn1p_expr_t *rhs_pspecs, const asn1p_ref_t
                 }
                 if(rhs_pspecs && ref_tc->lhs_params) {
                     /* Specialize the target */
+                    FILE *logf = fopen("/tmp/asn1c-param-debug.log", "a");
+                    if(logf) {
+                        fprintf(logf, "[RETRIEVE] Calling parameterization_fork: type='%s', rhs_pspecs='%s'\n",
+                                ref_tc->Identifier ? ref_tc->Identifier : "(anon)",
+                                rhs_pspecs->Identifier ? rhs_pspecs->Identifier : "(anon)");
+                        fclose(logf);
+                    }
                     ref_tc =
                         asn1f_parameterization_fork(arg, ref_tc, rhs_pspecs);
+                    logf = fopen("/tmp/asn1c-param-debug.log", "a");
+                    if(logf) {
+                        fprintf(logf, "[RETRIEVE] Result: %s\n",
+                                ref_tc ? (ref_tc->Identifier ? ref_tc->Identifier : "(anon)") : "NULL");
+                        fclose(logf);
+                    }
                 }
 
                 DISPOSE_OF_MY_NAMESPACE();
