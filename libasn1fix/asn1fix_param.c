@@ -10,6 +10,71 @@ typedef struct resolver_arg {
 
 static asn1p_expr_t *resolve_expr(asn1p_expr_t *, void *resolver_arg);
 static int compare_specializations(const asn1p_expr_t *a, const asn1p_expr_t *b);
+
+/*
+ * Extract a stable IOC set identifier from the parameterization arguments.
+ * For example, given {{Reg-MapData}}, extracts "Reg_MapData" (sanitized).
+ * Returns a strdup'd string or NULL if no identifier can be extracted.
+ */
+static char *
+extract_ioc_set_identifier(asn1p_expr_t *rhs_pspecs) {
+	asn1p_expr_t *first_member;
+	const char *name = NULL;
+	char *sanitized;
+	char *p;
+
+	if(!rhs_pspecs) return NULL;
+
+	first_member = TQ_FIRST(&rhs_pspecs->members);
+	if(!first_member) return NULL;
+
+	/*
+	 * Try multiple extraction strategies:
+	 *
+	 * Strategy 1: Direct reference on the member (simple type parameterizations)
+	 *   member->reference->components[0].name
+	 *
+	 * Strategy 2: Value set with constraint (IOC set parameterizations)
+	 *   For {{RegMapData}}, the parser creates a VALUESET member whose
+	 *   constraint chain is: constraints(ACT_EL_TYPE) -> containedSubtype(ATV_TYPE)
+	 *   -> value.v_type(expr) -> reference -> components[0].name
+	 *
+	 * Strategy 3: Member Identifier (if directly named)
+	 */
+
+	/* Strategy 1: Direct reference */
+	if(first_member->reference && first_member->reference->comp_count > 0) {
+		name = first_member->reference->components[0].name;
+	}
+
+	/* Strategy 2: Constraint chain (IOC set via VALUESET) */
+	if(!name && first_member->constraints
+		&& first_member->constraints->type == ACT_EL_TYPE
+		&& first_member->constraints->containedSubtype
+		&& first_member->constraints->containedSubtype->type == ATV_TYPE
+		&& first_member->constraints->containedSubtype->value.v_type
+		&& first_member->constraints->containedSubtype->value.v_type->reference
+		&& first_member->constraints->containedSubtype->value.v_type->reference->comp_count > 0) {
+		name = first_member->constraints->containedSubtype->value.v_type->reference->components[0].name;
+	}
+
+	/* Strategy 3: Direct Identifier */
+	if(!name && first_member->Identifier) {
+		name = first_member->Identifier;
+	}
+
+	if(!name || !name[0]) return NULL;
+
+	sanitized = strdup(name);
+	if(!sanitized) return NULL;
+
+	/* Replace hyphens with underscores for C identifier compliance */
+	for(p = sanitized; *p; p++) {
+		if(*p == '-') *p = '_';
+	}
+
+	return sanitized;
+}
 static asn1p_expr_t *find_target_specialization_byvalueset(resolver_arg_t *rarg, asn1p_constraint_t *ct);
 static asn1p_expr_t *find_target_specialization_byref(resolver_arg_t *rarg, asn1p_ref_t *ref);
 static asn1p_expr_t *find_target_specialization_bystr(resolver_arg_t *rarg, char *str);
@@ -32,31 +97,42 @@ asn1f_parameterization_fork(arg_t *arg, asn1p_expr_t *expr, asn1p_expr_t *rhs_ps
 	/*
 	 * Find if this exact specialization has been used already.
 	 *
-	 * KEY INSIGHT: Each usage site (different line number) MUST get its own
-	 * specialization for correct type naming, even if content is identical.
-	 * Only reuse if BOTH line number AND content match.
-	 *
-	 * KNOWN LIMITATION: Line numbers can change between parsing and C generation
-	 * phases due to file merging/preprocessing, which may cause type name mismatches
-	 * for empty IOC sets in some standards (IS/MAPEM/SPATEM regional extensions).
-	 * See CLAUDE.md for details.
+	 * When an IOC set identifier is available (e.g., "Reg_MapData"), match
+	 * on that identifier instead of line numbers, since line numbers can
+	 * shift between compilation phases in multi-file builds.
+	 * Fall back to line number matching for non-IOC parameterizations.
 	 */
-	for(npspecs = 0;
-		npspecs < expr->specializations.pspecs_count;
-			npspecs++) {
-		asn1p_expr_t *existing_rhs = expr->specializations.pspec[npspecs].rhs_pspecs;
+	{
+		char *new_ioc_id = extract_ioc_set_identifier(rhs_pspecs);
+		for(npspecs = 0;
+			npspecs < expr->specializations.pspecs_count;
+				npspecs++) {
+			asn1p_expr_t *existing_rhs = expr->specializations.pspec[npspecs].rhs_pspecs;
+			asn1p_expr_t *existing_clone = expr->specializations.pspec[npspecs].my_clone;
 
-		/* Line number must match for reuse */
-		if(rhs_pspecs->_lineno != existing_rhs->_lineno) {
-			continue;
-		}
+			if(new_ioc_id && existing_clone->ioc_set_identifier) {
+				/* Both have IOC identifiers: match on identifier */
+				if(strcmp(new_ioc_id, existing_clone->ioc_set_identifier) != 0) {
+					continue;
+				}
+			} else {
+				/* Fallback: match on line number */
+				if(rhs_pspecs->_lineno != existing_rhs->_lineno) {
+					continue;
+				}
+			}
 
-		/* Line numbers match, now check content */
-		if(compare_specializations(rhs_pspecs, existing_rhs) == 0) {
-			DEBUG("Reused parameterization for %s at line %d",
-				expr->Identifier, rhs_pspecs->_lineno);
-			return expr->specializations.pspec[npspecs].my_clone;
+			/* Identity/line match found, now check content */
+			if(compare_specializations(rhs_pspecs, existing_rhs) == 0) {
+				DEBUG("Reused parameterization for %s (ioc=%s, line=%d)",
+					expr->Identifier,
+					new_ioc_id ? new_ioc_id : "none",
+					rhs_pspecs->_lineno);
+				free(new_ioc_id);
+				return expr->specializations.pspec[npspecs].my_clone;
+			}
 		}
+		free(new_ioc_id);
 	}
 
 	DEBUG("Forking parameterization at %d for %s (%d alr)",
@@ -100,6 +176,7 @@ asn1f_parameterization_fork(arg_t *arg, asn1p_expr_t *expr, asn1p_expr_t *rhs_ps
 	pspec->rhs_pspecs = rpc;
 	pspec->my_clone = exc;
 	exc->spec_index = npspecs;
+	exc->ioc_set_identifier = extract_ioc_set_identifier(rhs_pspecs);
 
 	/*
 	 * Clone rhs_pspecs using the ANY-fallback resolver.

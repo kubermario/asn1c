@@ -74,9 +74,16 @@ asn1c_make_identifier(enum ami_flags_e flags, asn1p_expr_t *expr, ...) {
 
 		size += strlen(expr->Identifier);
 		if(expr->spec_index != -1) {
-			static char buf[32];
-			size += 1 + snprintf(buf, sizeof buf, "%dP%d",
-				expr->_lineno, expr->spec_index);
+			static char buf[128];
+			if(expr->ioc_set_identifier) {
+				/* Use stable IOC set name instead of line number */
+				size += 1 + snprintf(buf, sizeof buf, "%s_P%d",
+					expr->ioc_set_identifier, expr->spec_index);
+			} else {
+				/* Fallback to line number for non-IOC types */
+				size += 1 + snprintf(buf, sizeof buf, "%dP%d",
+					expr->_lineno, expr->spec_index);
+			}
 			sptr[sptr_cnt++] = (char *)&buf;
 		}
 	} else {

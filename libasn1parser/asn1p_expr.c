@@ -100,6 +100,7 @@ asn1p_expr_new(int _lineno, asn1p_module_t *mod) {
 	if(expr) {
 		TQ_INIT(&(expr->members));
 		expr->spec_index = -1;
+		expr->ioc_set_identifier = NULL;
 		expr->module = mod;
 		expr->_lineno = _lineno;
 		expr->ref_cnt = 0;
@@ -199,6 +200,7 @@ asn1p_expr_clone_impl(asn1p_expr_t *expr, int skip_extensions, asn1p_expr_t *(*r
 	 * Clone complex fields.
 	 */
 	CLCLONE(Identifier, strdup);
+	CLCLONE(ioc_set_identifier, strdup);
 	CLCLONE(reference, asn1p_ref_clone);
 	CLVRCLONE(constraints, asn1p_constraint_clone_with_resolver);
 	CLVRCLONE(combined_constraints, asn1p_constraint_clone_with_resolver);
@@ -352,6 +354,7 @@ asn1p_expr_free(asn1p_expr_t *expr) {
 		}
 
 		free(expr->Identifier);
+		free(expr->ioc_set_identifier);
 		asn1p_ref_free(expr->reference);
 		asn1p_constraint_free(expr->constraints);
 		asn1p_constraint_free(expr->combined_constraints);

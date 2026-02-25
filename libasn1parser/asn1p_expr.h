@@ -169,6 +169,7 @@ typedef struct asn1p_expr_s {
 		int pspecs_count;	/* Number of specializations */
 	} specializations;
 	int spec_index;	/* -1, or 0-based specialization index in the parent */
+	char *ioc_set_identifier;	/* Stable IOC set name for specialization naming (e.g., "Reg_MapData") */
 
 	/*
 	 * The actual value (DefinedValue or inlined value).
