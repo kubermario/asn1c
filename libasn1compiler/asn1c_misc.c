@@ -64,11 +64,14 @@ asn1c_make_identifier(enum ami_flags_e flags, asn1p_expr_t *expr, ...) {
 		if(expr->Identifier == NULL)
 			return "Member";
 		/*
-		 * Add MODULE name to resolve clash
+		 * Add module prefix to resolve clash.
+		 * Use short prefix from priority file if available, else full module name.
 		 */
 		if(expr->_mark & TM_NAMECLASH) {
-			size += strlen(expr->module->ModuleName) + 2;
-			sptr[sptr_cnt++] = expr->module->ModuleName;
+			const char *short_pfx = asn1f_get_module_short_prefix(expr->module->ModuleName);
+			const char *pfx_name = short_pfx ? short_pfx : expr->module->ModuleName;
+			size += strlen(pfx_name) + 2;
+			sptr[sptr_cnt++] = (char *)pfx_name;
 		}
 		sptr[sptr_cnt++] = expr->Identifier;
 
@@ -214,9 +217,17 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 
         terminal = WITH_MODULE_NAMESPACE(
             expr->module, expr_ns,
-            (expr->meta_type == AMT_TYPEREF) ? 
+            (expr->meta_type == AMT_TYPEREF) ?
                 asn1f_lookup_symbol_ex(arg->asn, expr_ns, expr, expr->reference) :
                 asn1f_find_terminal_type_ex(arg->asn, expr_ns, expr));
+
+        /* If terminal was suppressed (case-insensitive conflict),
+         * redirect to the winning type for consistent code generation. */
+        if(terminal && (terminal->_mark & TM_SUPPRESSED)
+           && terminal->suppressed_by) {
+            terminal = terminal->suppressed_by;
+            typename = terminal->Identifier;
+        }
 
         if(_format == TNF_RSAFE) {
 			if(terminal && terminal->expr_type & ASN_CONSTR_MASK) {

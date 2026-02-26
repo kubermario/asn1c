@@ -60,4 +60,10 @@ int asn1f_fix_dereference_values_ex(asn1p_t *asn, asn1p_module_t *mod,
 asn1p_expr_t *asn1f_find_ancestor_type_with_PER_constraint_ex(asn1p_t *asn,
 	asn1p_expr_t *expr);
 
+/*
+ * Get short prefix for a module from the priority file.
+ * Returns NULL if module not found or no short prefix defined.
+ */
+const char *asn1f_get_module_short_prefix(const char *module_name);
+
 #endif	/* ASN1FIX_EXPORT_H */

@@ -1,5 +1,6 @@
 #include "asn1fix_internal.h"
 #include "asn1fix.h"
+#include <strings.h>	/* strcasecmp */
 
 /*
  * Priority-based conflict resolution support.
@@ -8,6 +9,7 @@
 typedef struct module_priority_entry {
 	char *module_name;
 	int priority;
+	char *short_prefix;	/* Optional short prefix for compound naming (e.g., "Cpm") */
 	struct module_priority_entry *next;
 } module_priority_entry_t;
 
@@ -28,10 +30,12 @@ static int load_priority_file(const char *path, error_logger_f error_logger) {
 		/* Skip empty lines and comments */
 		if(line[0] == '\n' || line[0] == '#') continue;
 
-		/* Parse: ModuleName Priority */
+		/* Parse: ModuleName Priority [ShortPrefix] */
 		char module_name[128];
 		int priority;
-		if(sscanf(line, "%127s %d", module_name, &priority) != 2) {
+		char short_prefix[64] = "";
+		int fields = sscanf(line, "%127s %d %63s", module_name, &priority, short_prefix);
+		if(fields < 2) {
 			error_logger(0, "Warning: invalid line %d in priority file: %s", line_num, path);
 			continue;
 		}
@@ -40,11 +44,15 @@ static int load_priority_file(const char *path, error_logger_f error_logger) {
 		module_priority_entry_t *entry = calloc(1, sizeof(module_priority_entry_t));
 		entry->module_name = strdup(module_name);
 		entry->priority = priority;
+		entry->short_prefix = (fields >= 3 && short_prefix[0]) ? strdup(short_prefix) : NULL;
 		entry->next = global_priority_map;
 		global_priority_map = entry;
 
 		if(error_logger)
-			error_logger(-1, "Priority: %s = %d", module_name, priority);
+			error_logger(-1, "Priority: %s = %d%s%s%s", module_name, priority,
+				entry->short_prefix ? " (prefix: " : "",
+				entry->short_prefix ? entry->short_prefix : "",
+				entry->short_prefix ? ")" : "");
 	}
 
 	fclose(f);
@@ -63,14 +71,88 @@ static int get_module_priority(const char *module_name) {
 	return -1;
 }
 
+/* Get short prefix for a module (NULL if not found or not defined) */
+const char *asn1f_get_module_short_prefix(const char *module_name) {
+	if(!module_name || !global_priority_map) return NULL;
+
+	for(module_priority_entry_t *e = global_priority_map; e; e = e->next) {
+		if(strcmp(e->module_name, module_name) == 0) {
+			return e->short_prefix;
+		}
+	}
+	return NULL;
+}
+
 /* Free priority map */
 static void free_priority_map(void) {
 	while(global_priority_map) {
 		module_priority_entry_t *next = global_priority_map->next;
 		free(global_priority_map->module_name);
+		free(global_priority_map->short_prefix);
 		free(global_priority_map);
 		global_priority_map = next;
 	}
+}
+
+/*
+ * Compare two ASN.1 types for structural equality.
+ * Returns 1 if structurally equal (same member count, field names, field types).
+ * Returns 0 if structurally different.
+ */
+static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
+	if(!a || !b) return 0;
+
+	/* Count members */
+	int count_a = 0, count_b = 0;
+	asn1p_expr_t *ma, *mb;
+
+	TQ_FOR(ma, &(a->members), next) { count_a++; }
+	TQ_FOR(mb, &(b->members), next) { count_b++; }
+
+	/* Zero-member types: compare expr_type directly */
+	if(count_a == 0 && count_b == 0) {
+		return (a->expr_type == b->expr_type) ? 1 : 0;
+	}
+
+	/* One has members, the other doesn't */
+	if(count_a != count_b) return 0;
+
+	/* Walk both member lists in parallel */
+	ma = TQ_FIRST(&(a->members));
+	mb = TQ_FIRST(&(b->members));
+
+	while(ma && mb) {
+		/* Compare field names */
+		if(ma->Identifier && mb->Identifier) {
+			if(strcmp(ma->Identifier, mb->Identifier) != 0)
+				return 0;
+		} else if(ma->Identifier || mb->Identifier) {
+			/* One has a name, the other doesn't */
+			return 0;
+		}
+
+		/* Compare field types */
+		if(ma->reference && mb->reference) {
+			/* Both are type references — compare first component name */
+			if(ma->reference->comp_count > 0 && mb->reference->comp_count > 0) {
+				if(strcmp(ma->reference->components[0].name,
+				          mb->reference->components[0].name) != 0)
+					return 0;
+			}
+		} else if(!ma->reference && !mb->reference) {
+			/* Both are built-in types — compare expr_type */
+			if(ma->expr_type != mb->expr_type)
+				return 0;
+		} else {
+			/* One is a reference, the other is built-in */
+			return 0;
+		}
+
+		ma = TQ_NEXT(ma, next);
+		mb = TQ_NEXT(mb, next);
+	}
+
+	return 1; /* All members matched */
 }
 
 /* Print everything to stderr */
@@ -617,56 +699,92 @@ asn1f_check_duplicate(arg_t *arg) {
 
 			if(tmparg.expr == arg->expr) break;
 
-			if(strcmp(tmparg.expr->Identifier,
-				  arg->expr->Identifier))
-				continue;
+			/* Case-insensitive comparison for type-vs-type
+			 * (catches case-variant type names like Id vs ID).
+			 * Case-sensitive for all other members (PascalCase
+			 * types must not match camelCase value constants). */
+			{
+				int both_types =
+					(arg->expr->meta_type == AMT_TYPE
+					 || arg->expr->meta_type == AMT_TYPEREF)
+					&& (tmparg.expr->meta_type == AMT_TYPE
+					    || tmparg.expr->meta_type == AMT_TYPEREF);
+				if(both_types
+					? strcasecmp(tmparg.expr->Identifier,
+						arg->expr->Identifier)
+					: strcmp(tmparg.expr->Identifier,
+						arg->expr->Identifier))
+					continue;
+			}
 
 			/* resolve clash of Identifier in different modules */
 			int oid_exist = (tmparg.expr->module->module_oid && arg->expr->module->module_oid);
 			if ((!oid_exist && strcmp(tmparg.expr->module->ModuleName, arg->expr->module->ModuleName)) ||
 				(oid_exist && !asn1p_oid_compare(tmparg.expr->module->module_oid, arg->expr->module->module_oid))) {
 
-			/* Compound-name aware conflict resolution:
-			 * When -fcompound-names is enabled, cross-module conflicts get prefixes instead of suppression.
-			 * Example: Two modules defining 'Container' will generate Module1_Container and Module2_Container. */
-			if((arg->flags & A1F_AUTO_RENAME_CONFLICTS)) {
-				/* Compound names enabled: mark both for compound naming, no suppression */
-				LOG(0, "Compound-name resolution: keeping '%s' from both %s and %s with module prefixes",
-				       arg->expr->Identifier, arg->expr->module->ModuleName, tmparg.expr->module->ModuleName);
+			/* Smart conflict resolution:
+			 * 1. Both have priority → structural comparison → suppress or compound-name
+			 * 2. One/both lack priority → compound naming (backward compatible) */
+			if((arg->flags & (A1F_AUTO_RENAME_CONFLICTS | A1F_PRIORITY_BASED_RESOLUTION))) {
+				int prio_current = get_module_priority(arg->expr->module->ModuleName);
+				int prio_other = get_module_priority(tmparg.expr->module->ModuleName);
+
+				if(prio_current != -1 && prio_other != -1) {
+					/* Both have priorities: use smart resolution */
+					int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
+
+					if(prio_current != prio_other) {
+						/* Different priorities: suppress the lower-priority type */
+						if(prio_current < prio_other) {
+							LOG(0, "Smart resolution: suppressing '%s' from %s (%s, priority %d vs %d)",
+							       arg->expr->Identifier, tmparg.expr->module->ModuleName,
+							       structurally_equal ? "structurally equal" : "lower priority",
+							       prio_other, prio_current);
+							tmparg.expr->_mark |= TM_SUPPRESSED;
+							tmparg.expr->suppressed_by = arg->expr;
+						} else {
+							LOG(0, "Smart resolution: suppressing '%s' from %s (%s, priority %d vs %d)",
+							       arg->expr->Identifier, arg->expr->module->ModuleName,
+							       structurally_equal ? "structurally equal" : "lower priority",
+							       prio_current, prio_other);
+							arg->expr->_mark |= TM_SUPPRESSED;
+							arg->expr->suppressed_by = tmparg.expr;
+						}
+						continue;
+					}
+
+					if(structurally_equal) {
+						/* Equal priority + structurally equal: suppress the second one */
+						LOG(0, "Smart resolution: suppressing duplicate '%s' from %s "
+						       "(structurally equal to %s, same priority %d)",
+						       arg->expr->Identifier, tmparg.expr->module->ModuleName,
+						       arg->expr->module->ModuleName, prio_current);
+						tmparg.expr->_mark |= TM_SUPPRESSED;
+						tmparg.expr->suppressed_by = arg->expr;
+						continue;
+					}
+
+					/* Equal priority + structurally different: compound naming */
+					LOG(0, "Smart resolution: compound-naming '%s' from %s and %s "
+					       "(structurally different, same priority %d)",
+					       arg->expr->Identifier, arg->expr->module->ModuleName,
+					       tmparg.expr->module->ModuleName, prio_current);
+					tmparg.expr->_mark |= TM_NAMECLASH;
+					arg->expr->_mark |= TM_NAMECLASH;
+					continue;
+				}
+
+				/* One or both lack priority: fall back to compound naming */
+				LOG(0, "Smart resolution: compound-naming '%s' from %s and %s "
+				       "(missing priority entry, fallback)",
+				       arg->expr->Identifier, arg->expr->module->ModuleName,
+				       tmparg.expr->module->ModuleName);
 				tmparg.expr->_mark |= TM_NAMECLASH;
 				arg->expr->_mark |= TM_NAMECLASH;
 				continue;
 			}
 
-			/* Priority-based resolution for cross-module clashes (when compound names not enabled) */
-			if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
-				int prio_current = get_module_priority(arg->expr->module->ModuleName);
-				int prio_other = get_module_priority(tmparg.expr->module->ModuleName);
-
-				if(prio_current != -1 && prio_other != -1) {
-					/* Both modules have priorities - resolve based on priority */
-					if(prio_current < prio_other) {
-						/* Current module wins (lower number = higher priority) */
-						LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
-						       "suppressing from %s (priority %d)",
-						       arg->expr->Identifier, arg->expr->module->ModuleName, prio_current,
-						       tmparg.expr->module->ModuleName, prio_other);
-						tmparg.expr->_mark |= TM_SUPPRESSED;
-						continue;
-					} else if(prio_other < prio_current) {
-						/* Other module wins */
-						LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
-						       "suppressing from %s (priority %d)",
-						       tmparg.expr->Identifier, tmparg.expr->module->ModuleName, prio_other,
-						       arg->expr->module->ModuleName, prio_current);
-						arg->expr->_mark |= TM_SUPPRESSED;
-						continue;
-					}
-					/* Equal priority - fall through to marking both with TM_NAMECLASH */
-				}
-			}
-
-			/* Default behavior: mark both for compound naming */
+			/* No flags set: mark both for compound naming (default) */
 				tmparg.expr->_mark |= TM_NAMECLASH;
 				arg->expr->_mark |= TM_NAMECLASH;
 				continue;
@@ -699,55 +817,62 @@ asn1f_check_duplicate(arg_t *arg) {
 				diff_files ? ")" : "");
 			}
 			if(critical) {
-				/* Compound-name aware conflict resolution (same-module case):
-				 * Even within same module, if compound names enabled, mark for compound naming */
-				if((arg->flags & A1F_AUTO_RENAME_CONFLICTS) && strcmp(arg->expr->module->ModuleName, tmparg.expr->module->ModuleName)) {
-					/* Different modules with compound names: mark for compound naming */
-					LOG(0, "Compound-name resolution (critical): keeping '%s' from both %s and %s with module prefixes",
-					       arg->expr->Identifier, arg->expr->module->ModuleName, tmparg.expr->module->ModuleName);
-					arg->expr->_mark |= TM_NAMECLASH;
-					tmparg.expr->_mark |= TM_NAMECLASH;
-					RET2RVAL(1, rvalue);
-					continue;
-				}
-
-				/* Priority-based conflict resolution */
-				if(arg->flags & A1F_PRIORITY_BASED_RESOLUTION) {
+				/* Smart conflict resolution (critical path) */
+				if((arg->flags & (A1F_AUTO_RENAME_CONFLICTS | A1F_PRIORITY_BASED_RESOLUTION))
+				   && strcmp(arg->expr->module->ModuleName, tmparg.expr->module->ModuleName)) {
 					int prio_current = get_module_priority(arg->mod->ModuleName);
 					int prio_other = get_module_priority(tmparg.mod->ModuleName);
 
 					if(prio_current != -1 && prio_other != -1) {
-						/* Both modules have priorities defined */
-						if(prio_current < prio_other) {
-							/* Current module wins (lower number = higher priority) */
-							LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
-							       "suppressing from %s (priority %d)",
-							       arg->expr->Identifier, arg->mod->ModuleName, prio_current,
-							       tmparg.mod->ModuleName, prio_other);
-							tmparg.expr->_mark |= TM_SUPPRESSED;
-							RET2RVAL(1, rvalue);
-							continue;
-						} else if(prio_other < prio_current) {
-							/* Other module wins */
-							LOG(0, "Priority-based resolution: keeping '%s' from %s (priority %d), "
-							       "suppressing from %s (priority %d)",
-							       tmparg.expr->Identifier, tmparg.mod->ModuleName, prio_other,
-							       arg->mod->ModuleName, prio_current);
-							arg->expr->_mark |= TM_SUPPRESSED;
+						int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
+
+						if(prio_current != prio_other) {
+							/* Different priorities: suppress lower */
+							if(prio_current < prio_other) {
+								LOG(0, "Smart resolution (critical): suppressing '%s' from %s (%s, priority %d vs %d)",
+								       arg->expr->Identifier, tmparg.mod->ModuleName,
+								       structurally_equal ? "structurally equal" : "lower priority",
+								       prio_other, prio_current);
+								tmparg.expr->_mark |= TM_SUPPRESSED;
+								tmparg.expr->suppressed_by = arg->expr;
+							} else {
+								LOG(0, "Smart resolution (critical): suppressing '%s' from %s (%s, priority %d vs %d)",
+								       arg->expr->Identifier, arg->mod->ModuleName,
+								       structurally_equal ? "structurally equal" : "lower priority",
+								       prio_current, prio_other);
+								arg->expr->_mark |= TM_SUPPRESSED;
+								arg->expr->suppressed_by = tmparg.expr;
+							}
 							RET2RVAL(1, rvalue);
 							continue;
 						}
-						/* Equal priority - fall through to auto-rename or fatal */
-					}
-				}
 
-				/* If auto-rename flag enabled, demote fatal clash to warning
-				 * and mark both expressions for compound naming, otherwise fail */
-				if(arg->flags & A1F_AUTO_RENAME_CONFLICTS) {
+						if(structurally_equal) {
+							LOG(0, "Smart resolution (critical): suppressing duplicate '%s' from %s "
+							       "(structurally equal, same priority %d)",
+							       arg->expr->Identifier, tmparg.mod->ModuleName, prio_current);
+							tmparg.expr->_mark |= TM_SUPPRESSED;
+							tmparg.expr->suppressed_by = arg->expr;
+							RET2RVAL(1, rvalue);
+							continue;
+						}
+
+						/* Equal priority + different: compound naming */
+						LOG(0, "Smart resolution (critical): compound-naming '%s' from %s and %s "
+						       "(structurally different, same priority %d)",
+						       arg->expr->Identifier, arg->mod->ModuleName,
+						       tmparg.mod->ModuleName, prio_current);
+					} else {
+						/* Missing priorities: compound naming fallback */
+						LOG(0, "Smart resolution (critical): compound-naming '%s' from %s and %s "
+						       "(missing priority entry, fallback)",
+						       arg->expr->Identifier, arg->mod->ModuleName,
+						       tmparg.mod->ModuleName);
+					}
+
 					arg->expr->_mark |= TM_NAMECLASH;
 					tmparg.expr->_mark |= TM_NAMECLASH;
 					RET2RVAL(1, rvalue);
-					/* Demoted: continue scanning without failing */
 					continue;
 				}
 				return -1;

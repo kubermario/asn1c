@@ -101,6 +101,7 @@ asn1p_expr_new(int _lineno, asn1p_module_t *mod) {
 		TQ_INIT(&(expr->members));
 		expr->spec_index = -1;
 		expr->ioc_set_identifier = NULL;
+		expr->suppressed_by = NULL;
 		expr->module = mod;
 		expr->_lineno = _lineno;
 		expr->ref_cnt = 0;
@@ -192,6 +193,7 @@ asn1p_expr_clone_impl(asn1p_expr_t *expr, int skip_extensions, asn1p_expr_t *(*r
 	CLCOPY(_mark);
 	CLCOPY(parent_expr);
 	CLCOPY(_type_unique_index);
+	CLCOPY(suppressed_by);	/* Just copy pointer, not deep-clone */
 
 	clone->data = 0;	/* Do not clone this */
 	clone->data_free = 0;	/* Do not clone this */

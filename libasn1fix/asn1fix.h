@@ -48,4 +48,10 @@ int asn1f_load_priority_file(const char *path,
  */
 void asn1f_free_priority_map(void);
 
+/*
+ * Get short prefix for a module from the priority file.
+ * Returns NULL if module not found or no short prefix defined.
+ */
+const char *asn1f_get_module_short_prefix(const char *module_name);
+
 #endif	/* ASN1FIX_H */

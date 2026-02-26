@@ -266,6 +266,12 @@ typedef struct asn1p_expr_s {
 	int _type_referenced;	/* This type is referenced from another place */
 
 	/*
+	 * When TM_SUPPRESSED is set due to case-insensitive name conflict,
+	 * points to the winning type so references can be redirected.
+	 */
+	struct asn1p_expr_s *suppressed_by;
+
+	/*
 	 * Opaque data may be attached to this structure,
 	 * probably by compiler.
 	 */
