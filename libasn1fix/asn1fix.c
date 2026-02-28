@@ -734,22 +734,30 @@ asn1f_check_duplicate(arg_t *arg) {
 					int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
 
 					if(prio_current != prio_other) {
-						/* Different priorities: suppress the lower-priority type */
-						if(prio_current < prio_other) {
-							LOG(0, "Smart resolution: suppressing '%s' from %s (%s, priority %d vs %d)",
-							       arg->expr->Identifier, tmparg.expr->module->ModuleName,
-							       structurally_equal ? "structurally equal" : "lower priority",
-							       prio_other, prio_current);
-							tmparg.expr->_mark |= TM_SUPPRESSED;
-							tmparg.expr->suppressed_by = arg->expr;
-						} else {
-							LOG(0, "Smart resolution: suppressing '%s' from %s (%s, priority %d vs %d)",
-							       arg->expr->Identifier, arg->expr->module->ModuleName,
-							       structurally_equal ? "structurally equal" : "lower priority",
-							       prio_current, prio_other);
-							arg->expr->_mark |= TM_SUPPRESSED;
-							arg->expr->suppressed_by = tmparg.expr;
+						if(structurally_equal) {
+							/* Different priorities + structurally equal: suppress lower priority */
+							if(prio_current < prio_other) {
+								LOG(0, "Smart resolution: suppressing '%s' from %s (structurally equal, priority %d vs %d)",
+								       arg->expr->Identifier, tmparg.expr->module->ModuleName,
+								       prio_other, prio_current);
+								tmparg.expr->_mark |= TM_SUPPRESSED;
+								tmparg.expr->suppressed_by = arg->expr;
+							} else {
+								LOG(0, "Smart resolution: suppressing '%s' from %s (structurally equal, priority %d vs %d)",
+								       arg->expr->Identifier, arg->expr->module->ModuleName,
+								       prio_current, prio_other);
+								arg->expr->_mark |= TM_SUPPRESSED;
+								arg->expr->suppressed_by = tmparg.expr;
+							}
+							continue;
 						}
+						/* Different priorities + structurally different: compound-name both */
+						LOG(0, "Smart resolution: compound-naming '%s' from %s and %s "
+						       "(structurally different, priority %d vs %d)",
+						       arg->expr->Identifier, arg->expr->module->ModuleName,
+						       tmparg.expr->module->ModuleName, prio_current, prio_other);
+						tmparg.expr->_mark |= TM_NAMECLASH;
+						arg->expr->_mark |= TM_NAMECLASH;
 						continue;
 					}
 
@@ -827,24 +835,29 @@ asn1f_check_duplicate(arg_t *arg) {
 						int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
 
 						if(prio_current != prio_other) {
-							/* Different priorities: suppress lower */
-							if(prio_current < prio_other) {
-								LOG(0, "Smart resolution (critical): suppressing '%s' from %s (%s, priority %d vs %d)",
-								       arg->expr->Identifier, tmparg.mod->ModuleName,
-								       structurally_equal ? "structurally equal" : "lower priority",
-								       prio_other, prio_current);
-								tmparg.expr->_mark |= TM_SUPPRESSED;
-								tmparg.expr->suppressed_by = arg->expr;
-							} else {
-								LOG(0, "Smart resolution (critical): suppressing '%s' from %s (%s, priority %d vs %d)",
-								       arg->expr->Identifier, arg->mod->ModuleName,
-								       structurally_equal ? "structurally equal" : "lower priority",
-								       prio_current, prio_other);
-								arg->expr->_mark |= TM_SUPPRESSED;
-								arg->expr->suppressed_by = tmparg.expr;
+							if(structurally_equal) {
+								/* Different priorities + structurally equal: suppress lower */
+								if(prio_current < prio_other) {
+									LOG(0, "Smart resolution (critical): suppressing '%s' from %s (structurally equal, priority %d vs %d)",
+									       arg->expr->Identifier, tmparg.mod->ModuleName,
+									       prio_other, prio_current);
+									tmparg.expr->_mark |= TM_SUPPRESSED;
+									tmparg.expr->suppressed_by = arg->expr;
+								} else {
+									LOG(0, "Smart resolution (critical): suppressing '%s' from %s (structurally equal, priority %d vs %d)",
+									       arg->expr->Identifier, arg->mod->ModuleName,
+									       prio_current, prio_other);
+									arg->expr->_mark |= TM_SUPPRESSED;
+									arg->expr->suppressed_by = tmparg.expr;
+								}
+								RET2RVAL(1, rvalue);
+								continue;
 							}
-							RET2RVAL(1, rvalue);
-							continue;
+							/* Different priorities + structurally different: compound-name */
+							LOG(0, "Smart resolution (critical): compound-naming '%s' from %s and %s "
+							       "(structurally different, priority %d vs %d)",
+							       arg->expr->Identifier, arg->mod->ModuleName,
+							       tmparg.mod->ModuleName, prio_current, prio_other);
 						}
 
 						if(structurally_equal) {

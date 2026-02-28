@@ -39,6 +39,24 @@ reserved_keyword(const char *str) {
 }
 
 /*
+ * Get the module prefix for compound-named types.
+ * Uses short prefix from priority file if available, else full module name.
+ */
+static const char *
+module_prefix_of(asn1p_expr_t *expr) {
+	if(!expr || !(expr->_mark & TM_NAMECLASH) || !expr->module)
+		return "";
+	const char *short_pfx = asn1f_get_module_short_prefix(expr->module->ModuleName);
+	return short_pfx ? short_pfx : expr->module->ModuleName;
+}
+static const char *
+module_sep_of(asn1p_expr_t *expr) {
+	if(!expr || !(expr->_mark & TM_NAMECLASH))
+		return "";
+	return "_";
+}
+
+/*
  * Construct identifier from multiple parts.
  * Convert unsafe characters to underscores.
  */
@@ -246,9 +264,10 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 			}
 		}
 
-		if(_format != TNF_RSAFE  && terminal && ((terminal->spec_index != -1) || (terminal->_mark & TM_NAMECLASH))) {
+		if(terminal && ((terminal->spec_index != -1) || (terminal->_mark & TM_NAMECLASH))) {
 			exprid = terminal;
-			typename = 0;
+			if(_format != TNF_RSAFE)
+				typename = 0;
 		}
 
 		break;
@@ -324,13 +343,13 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 	switch(_format) {
 	case TNF_UNMODIFIED:
 		return asn1c_make_identifier(AMI_MASK_ONLY_SPACES | AMI_NODELIMITER,
-			0, MODULE_NAME_OF(exprid), exprid ? exprid->Identifier : typename, (char*)0);
+			0, module_prefix_of(exprid), module_sep_of(exprid), exprid ? exprid->Identifier : typename, (char*)0);
 	case TNF_INCLUDE:
 		return asn1c_make_identifier(
 			AMI_MASK_ONLY_SPACES | AMI_NODELIMITER,
 			0, ((!stdname || (arg->flags & A1C_INCLUDES_QUOTED))
 				? "\"" : "<"),
-			MODULE_NAME_OF(exprid),
+			module_prefix_of(exprid), module_sep_of(exprid),
 			exprid ? exprid->Identifier : typename,
 			((!stdname || (arg->flags & A1C_INCLUDES_QUOTED))
 				? ".h\"" : ".h>"), (char*)0);
@@ -342,7 +361,7 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 				exprid?"t":typename, exprid?0:"t", (char*)0);
 	case TNF_RSAFE:	/* Recursion-safe type */
 		return asn1c_make_identifier(AMI_CHECK_RESERVED | AMI_NODELIMITER, 0,
-			"struct", " ", MODULE_NAME_OF(exprid), typename, (char*)0);
+			"struct", " ", module_prefix_of(exprid), module_sep_of(exprid), typename, (char*)0);
 	}
 
 	assert(!"unreachable");
