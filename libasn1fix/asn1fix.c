@@ -99,6 +99,13 @@ static void free_priority_map(void) {
  * Returns 1 if structurally equal (same member count, field names, field types).
  * Returns 0 if structurally different.
  */
+/*
+ * Return values:
+ *   1 = structurally equal (same base type, same constraints or no constraints)
+ *   0 = structurally different (different base type or different members)
+ *  -1 = constraint-variant (same base type, different constraints)
+ *       Used for priority-based resolution: only rename the lower-priority type
+ */
 static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
 	if(!a || !b) return 0;
 
@@ -109,9 +116,24 @@ static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
 	TQ_FOR(ma, &(a->members), next) { count_a++; }
 	TQ_FOR(mb, &(b->members), next) { count_b++; }
 
-	/* Zero-member types: compare expr_type directly */
+	/* Zero-member types: compare expr_type and constraints */
 	if(count_a == 0 && count_b == 0) {
-		return (a->expr_type == b->expr_type) ? 1 : 0;
+		if(a->expr_type != b->expr_type) return 0;
+		/* Same base type — check if constraints differ */
+		int a_has_constraints = (a->constraints != NULL);
+		int b_has_constraints = (b->constraints != NULL);
+		if(a_has_constraints != b_has_constraints) {
+			/* One has constraints, the other doesn't: constraint-variant */
+			return -1;
+		}
+		if(a_has_constraints && b_has_constraints) {
+			/* Both have constraints — check if they're from different modules.
+			 * Different modules with same base type but own constraints
+			 * are likely to have different ranges (e.g. Latitude in
+			 * ITS-Container vs IEEE1609dot2BaseTypes). */
+			return -1;
+		}
+		return 1; /* Both without constraints: truly equal */
 	}
 
 	/* One has members, the other doesn't */
@@ -734,7 +756,7 @@ asn1f_check_duplicate(arg_t *arg) {
 					int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
 
 					if(prio_current != prio_other) {
-						if(structurally_equal) {
+						if(structurally_equal == 1) {
 							/* Different priorities + structurally equal: suppress lower priority */
 							if(prio_current < prio_other) {
 								LOG(0, "Smart resolution: suppressing '%s' from %s (structurally equal, priority %d vs %d)",
@@ -751,6 +773,25 @@ asn1f_check_duplicate(arg_t *arg) {
 							}
 							continue;
 						}
+						if(structurally_equal == -1) {
+							/* Different priorities + constraint-variant: compound-name ONLY lower priority.
+							 * Higher priority type keeps its original name.
+							 * Lower priority type gets module prefix. */
+							if(prio_current < prio_other) {
+								LOG(0, "Smart resolution: compound-naming '%s' from %s only "
+								       "(constraint-variant, keeping %s version, priority %d vs %d)",
+								       arg->expr->Identifier, tmparg.expr->module->ModuleName,
+								       arg->expr->module->ModuleName, prio_other, prio_current);
+								tmparg.expr->_mark |= TM_NAMECLASH;
+							} else {
+								LOG(0, "Smart resolution: compound-naming '%s' from %s only "
+								       "(constraint-variant, keeping %s version, priority %d vs %d)",
+								       arg->expr->Identifier, arg->expr->module->ModuleName,
+								       tmparg.expr->module->ModuleName, prio_current, prio_other);
+								arg->expr->_mark |= TM_NAMECLASH;
+							}
+							continue;
+						}
 						/* Different priorities + structurally different: compound-name both */
 						LOG(0, "Smart resolution: compound-naming '%s' from %s and %s "
 						       "(structurally different, priority %d vs %d)",
@@ -761,7 +802,7 @@ asn1f_check_duplicate(arg_t *arg) {
 						continue;
 					}
 
-					if(structurally_equal) {
+					if(structurally_equal == 1) {
 						/* Equal priority + structurally equal: suppress the second one */
 						LOG(0, "Smart resolution: suppressing duplicate '%s' from %s "
 						       "(structurally equal to %s, same priority %d)",
@@ -769,6 +810,17 @@ asn1f_check_duplicate(arg_t *arg) {
 						       arg->expr->module->ModuleName, prio_current);
 						tmparg.expr->_mark |= TM_SUPPRESSED;
 						tmparg.expr->suppressed_by = arg->expr;
+						continue;
+					}
+
+					if(structurally_equal == -1) {
+						/* Equal priority + constraint-variant: compound-name the second one.
+						 * First type seen keeps original name. */
+						LOG(0, "Smart resolution: compound-naming '%s' from %s only "
+						       "(constraint-variant, same priority %d)",
+						       arg->expr->Identifier, tmparg.expr->module->ModuleName,
+						       prio_current);
+						tmparg.expr->_mark |= TM_NAMECLASH;
 						continue;
 					}
 
@@ -835,7 +887,7 @@ asn1f_check_duplicate(arg_t *arg) {
 						int structurally_equal = asn1f_types_structurally_equal(arg->expr, tmparg.expr);
 
 						if(prio_current != prio_other) {
-							if(structurally_equal) {
+							if(structurally_equal == 1) {
 								/* Different priorities + structurally equal: suppress lower */
 								if(prio_current < prio_other) {
 									LOG(0, "Smart resolution (critical): suppressing '%s' from %s (structurally equal, priority %d vs %d)",
@@ -853,6 +905,24 @@ asn1f_check_duplicate(arg_t *arg) {
 								RET2RVAL(1, rvalue);
 								continue;
 							}
+							if(structurally_equal == -1) {
+								/* Different priorities + constraint-variant: compound-name ONLY lower priority */
+								if(prio_current < prio_other) {
+									LOG(0, "Smart resolution (critical): compound-naming '%s' from %s only "
+									       "(constraint-variant, priority %d vs %d)",
+									       arg->expr->Identifier, tmparg.mod->ModuleName,
+									       prio_other, prio_current);
+									tmparg.expr->_mark |= TM_NAMECLASH;
+								} else {
+									LOG(0, "Smart resolution (critical): compound-naming '%s' from %s only "
+									       "(constraint-variant, priority %d vs %d)",
+									       arg->expr->Identifier, arg->mod->ModuleName,
+									       prio_current, prio_other);
+									arg->expr->_mark |= TM_NAMECLASH;
+								}
+								RET2RVAL(1, rvalue);
+								continue;
+							}
 							/* Different priorities + structurally different: compound-name */
 							LOG(0, "Smart resolution (critical): compound-naming '%s' from %s and %s "
 							       "(structurally different, priority %d vs %d)",
@@ -860,12 +930,21 @@ asn1f_check_duplicate(arg_t *arg) {
 							       tmparg.mod->ModuleName, prio_current, prio_other);
 						}
 
-						if(structurally_equal) {
+						if(structurally_equal == 1) {
 							LOG(0, "Smart resolution (critical): suppressing duplicate '%s' from %s "
 							       "(structurally equal, same priority %d)",
 							       arg->expr->Identifier, tmparg.mod->ModuleName, prio_current);
 							tmparg.expr->_mark |= TM_SUPPRESSED;
 							tmparg.expr->suppressed_by = arg->expr;
+							RET2RVAL(1, rvalue);
+							continue;
+						}
+
+						if(structurally_equal == -1) {
+							LOG(0, "Smart resolution (critical): compound-naming '%s' from %s only "
+							       "(constraint-variant, same priority %d)",
+							       arg->expr->Identifier, tmparg.mod->ModuleName, prio_current);
+							tmparg.expr->_mark |= TM_NAMECLASH;
 							RET2RVAL(1, rvalue);
 							continue;
 						}

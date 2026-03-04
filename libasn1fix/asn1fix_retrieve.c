@@ -149,6 +149,7 @@ asn1f_lookup_module(arg_t *arg, const char *module_name, const asn1p_oid_t *oid)
 	 * version mismatches between modules (e.g., different minor versions).
 	 */
 	asn1p_module_t *name_match_fallback = NULL;
+	asn1p_module_t *icase_match_fallback = NULL;
 
 	TQ_FOR(mod, &(arg->asn->modules), mod_next) {
 		if(oid) {
@@ -160,6 +161,11 @@ asn1f_lookup_module(arg_t *arg, const char *module_name, const asn1p_oid_t *oid)
 						if(name_match_fallback == NULL) {
 							name_match_fallback = mod;
 							DEBUG("\tSaved fallback for module \"%s\" with OID mismatch", module_name);
+						}
+					} else if(strcasecmp(module_name, mod->ModuleName) == 0) {
+						if(icase_match_fallback == NULL) {
+							icase_match_fallback = mod;
+							DEBUG("\tSaved case-insensitive fallback for module \"%s\" (wanted \"%s\")", mod->ModuleName, module_name);
 						}
 					}
 					continue;
@@ -175,6 +181,11 @@ asn1f_lookup_module(arg_t *arg, const char *module_name, const asn1p_oid_t *oid)
 						name_match_fallback = mod;
 						DEBUG("\tSaved fallback for module \"%s\" without OID", module_name);
 					}
+				} else if(strcasecmp(module_name, mod->ModuleName) == 0) {
+					if(icase_match_fallback == NULL) {
+						icase_match_fallback = mod;
+						DEBUG("\tSaved case-insensitive fallback for module \"%s\" without OID (wanted \"%s\")", mod->ModuleName, module_name);
+					}
 				}
 				/* Not match, even if name is the same. */
 				continue;
@@ -189,6 +200,14 @@ asn1f_lookup_module(arg_t *arg, const char *module_name, const asn1p_oid_t *oid)
 	if(name_match_fallback != NULL) {
 		WARNING("Using name-matched module \"%s\" despite OID mismatch", module_name);
 		return name_match_fallback;
+	}
+
+	/* Fallback: Use case-insensitive name match (handles cross-version naming changes,
+	 * e.g., IEEE1609dot2 vs Ieee1609Dot2 between standard versions) */
+	if(icase_match_fallback != NULL) {
+		WARNING("Using case-insensitive module match: wanted \"%s\", found \"%s\"",
+			module_name, icase_match_fallback->ModuleName);
+		return icase_match_fallback;
 	}
 
 	DEBUG("\tModule \"%s\" not found", module_name);

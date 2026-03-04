@@ -2990,9 +2990,19 @@ emit_type_DEF(arg_t *arg, asn1p_expr_t *expr, enum tvm_compat tv_mode, int tags_
 		if (!p2)
 			p2 = strdup(p);
 
-		/* Ensure OPEN_TYPE.h is included when referencing asn_OP_OPEN_TYPE */
+		/* Ensure skeleton headers are included when referencing asn_OP_* */
 		if (strcmp(p2, "OPEN_TYPE") == 0) {
 			GEN_INCLUDE_STD("OPEN_TYPE");
+		} else if (strcmp(p2, "SEQUENCE") == 0) {
+			GEN_INCLUDE_STD("constr_SEQUENCE");
+		} else if (strcmp(p2, "SET") == 0) {
+			GEN_INCLUDE_STD("constr_SET");
+		} else if (strcmp(p2, "CHOICE") == 0) {
+			GEN_INCLUDE_STD("constr_CHOICE");
+		} else if (strcmp(p2, "SEQUENCE_OF") == 0) {
+			GEN_INCLUDE_STD("constr_SEQUENCE_OF");
+		} else if (strcmp(p2, "SET_OF") == 0) {
+			GEN_INCLUDE_STD("constr_SET_OF");
 		}
 
         OUT("&asn_OP_%s,\n", p2);
