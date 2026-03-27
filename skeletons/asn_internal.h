@@ -12,7 +12,18 @@
 #endif
 #include "asn_application.h"	/* Application-visible API */
 
-#ifndef	__NO_ASSERT_H__		/* Include assert.h only for internal use. */
+#ifdef ASN1_SAFETY_NO_ABORT
+/*
+ * Safety-hardened assert: logs failure but does NOT call abort().
+ * Enable with -DASN1_SAFETY_NO_ABORT at compile time.
+ * For automotive/embedded systems where process termination is unacceptable.
+ */
+#include <stdio.h>
+#define assert(expr) \
+    ((expr) ? (void)0 : \
+     (void)fprintf(stderr, "ASN1 assertion failed: %s [%s:%d]\n", \
+                   #expr, __FILE__, __LINE__))
+#elif !defined(__NO_ASSERT_H__)	/* Include assert.h only for internal use. */
 #include <assert.h>		/* for assert() macro */
 #endif
 
