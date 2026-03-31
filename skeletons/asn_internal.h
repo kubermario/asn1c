@@ -35,10 +35,25 @@ extern "C" {
 #define	ASN1C_ENVIRONMENT_VERSION	923	/* Compile-time version */
 int get_asn1c_environment_version(void);	/* Run-time version */
 
+/* Arena allocator support: when ASN1_USE_ARENA is defined, an external header
+ * provides MALLOC/CALLOC/REALLOC/FREEMEM macros that allocate from a
+ * pre-allocated arena instead of the heap. */
+#ifdef ASN1_USE_ARENA
+#include "asn1_arena.h"
+#endif
+
+#ifndef CALLOC
 #define	CALLOC(nmemb, size)	calloc(nmemb, size)
+#endif
+#ifndef MALLOC
 #define	MALLOC(size)		malloc(size)
+#endif
+#ifndef REALLOC
 #define	REALLOC(oldptr, size)	realloc(oldptr, size)
+#endif
+#ifndef FREEMEM
 #define	FREEMEM(ptr)		free(ptr)
+#endif
 
 #define	asn_debug_indent	0
 #define ASN_DEBUG_INDENT_ADD(i) do{}while(0)
