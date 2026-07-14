@@ -151,7 +151,22 @@ asn1p_expr_clone_impl(asn1p_expr_t *expr, int skip_extensions, asn1p_expr_t *(*r
 			if(expr->constraints) {
 				asn1p_constraint_t *tmpct = asn1p_constraint_clone_with_resolver(expr->constraints, vr, rarg);
 				if(clone->constraints) {
-					if(asn1p_constraint_insert(clone->constraints, tmpct)) {
+					if(!tmpct) {
+						/*
+						 * The value resolver could not clone the constraint (it
+						 * returned NULL) but clone already has constraints to merge
+						 * into. This happens for a defined-value subtype constraint
+						 * on a parameterized actual parameter, e.g.
+						 * "ScrmPDU ::= SegmentPDU {Psid (ctlPsid)}" (ETSI TS 103 601).
+						 * Fall back to a plain (unresolved) clone so a real constraint
+						 * is merged — the later value-resolution fix pass resolves it.
+						 * Previously this inserted NULL and asserted (crash). Scoped to
+						 * this branch only, so the clone->constraints==NULL case keeps
+						 * its original behaviour (object sets stay dropped).
+						 */
+						tmpct = asn1p_constraint_clone(expr->constraints);
+					}
+					if(tmpct && asn1p_constraint_insert(clone->constraints, tmpct)) {
 						asn1p_constraint_free(tmpct);
 						asn1p_expr_free(clone);
 						return NULL;
