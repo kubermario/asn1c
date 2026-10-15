@@ -213,7 +213,10 @@ SEQUENCE_OF_encode_uper(const asn_TYPE_descriptor_t *td,
             er = elm->type->op->uper_encoder(
                 elm->type, elm->encoding_constraints.per_constraints, memb_ptr,
                 po);
-            if(er.encoded == -1) ASN__ENCODE_FAILED;
+            /* Keep the member's failed_type/structure_ptr: re-raising under this
+             * SEQUENCE OF would report only the container, never the type at fault
+             * (as constr_SEQUENCE.c already does). */
+            if(er.encoded == -1) return er;
         }
 
         if(need_eom && uper_put_length(po, 0, 0))
