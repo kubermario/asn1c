@@ -1505,8 +1505,15 @@ asn1c_lang_C_type_SIMPLE_TYPE(arg_t *arg) {
 		OUT("\n");
 		DEBUG("expr constraint checking code for %s", p);
 		if(asn1c_emit_constraint_checking_code(arg) == 1) {
-			OUT("return td->encoding_constraints.general_constraints"
-				"(td, sptr, ctfailcb, app_key);\n");
+			/*
+			 * Nothing checkable here (ItsPduHeaderVam ::= ItsPduHeader (WITH
+			 * COMPONENTS {...})): check as the type this one is implemented by.
+			 * td's own general_constraints is this very function — calling it
+			 * looped forever (asn_check_constraints on any VAM hung).
+			 */
+			OUT("return asn_DEF_%s.encoding_constraints.general_constraints"
+				"(td, sptr, ctfailcb, app_key);\n",
+				asn1c_type_name(arg, arg->expr, TNF_SAFE));
 		}
 		INDENT(-1);
 		OUT("}\n");
