@@ -1599,6 +1599,32 @@ SEQUENCE_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
             memb_ptr2 = &memb_ptr;
         }
 
+        if(elm->flags & ATF_OPEN_TYPE) {
+            /*
+             * Typed by an identifier drawn before it: draw the value its row
+             * selects. When the identifier selects nothing, draw the member
+             * before this one (the identifier, in every ETSI/IEEE layout) again.
+             */
+            int tries = 0;
+            for(;;) {
+                tmpres = OPEN_TYPE_random_fill_selected(td, st, elm, memb_ptr2,
+                    max_length > result_ok.length ? max_length - result_ok.length : 0);
+                if(tmpres.code != ARFILL_FAILED || edx == 0 || ++tries > 1024) break;
+                {
+                    const asn_TYPE_member_t *prev = &td->elements[edx - 1];
+                    void *pp = (char *)st + prev->memb_offset;
+                    void **pp2 = (prev->flags & ATF_POINTER) ? (void **)pp : &pp;
+                    if(prev->flags & ATF_POINTER) {
+                        ASN_STRUCT_FREE(*prev->type, *pp2);
+                        *pp2 = NULL;
+                    } else {
+                        ASN_STRUCT_RESET(*prev->type, pp);
+                    }
+                    (void)prev->type->op->random_fill(prev->type, pp2,
+                        &prev->encoding_constraints, max_length);
+                }
+            }
+        } else
         tmpres = elm->type->op->random_fill(
             elm->type, memb_ptr2, &elm->encoding_constraints,
             max_length > result_ok.length ? max_length - result_ok.length : 0);

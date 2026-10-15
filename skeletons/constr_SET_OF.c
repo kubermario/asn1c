@@ -1331,7 +1331,11 @@ SET_OF_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
     for(; rnd_len > 0; rnd_len--) {
         asn_anonymous_set_ *list = _A_SET_FROM_VOID(st);
         void *ptr = 0;
-        asn_random_fill_result_t tmpres = elm->type->op->random_fill(
+        asn_random_fill_result_t tmpres = (elm->flags & ATF_OPEN_TYPE)
+            ? OPEN_TYPE_random_fill_selected(td, st, elm, &ptr,
+                  (max_length > res_ok.length ? max_length - res_ok.length : 0)
+                      / rnd_len)
+            : elm->type->op->random_fill(
             elm->type, &ptr, &elm->encoding_constraints,
             (max_length > res_ok.length ? max_length - res_ok.length : 0)
                 / rnd_len);

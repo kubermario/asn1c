@@ -32,7 +32,7 @@ asn_TYPE_operation_t asn_OP_ANY = {
 	ANY_decode_uper,
 	ANY_encode_uper,
 #endif  /* ASN_DISABLE_PER_SUPPORT */
-	0,	/* Random fill is not defined for ANY type */
+	ANY_random_fill,
 	0	/* Use generic outmost tag fetcher */
 };
 asn_TYPE_descriptor_t asn_DEF_ANY = {
@@ -343,3 +343,35 @@ ANY_encode_oer(const asn_TYPE_descriptor_t *td,
 }
 
 #endif  /* ASN_DISABLE_OER_SUPPORT */
+
+/*
+ * An ANY stands for an open type with nothing registered to type it: any octets
+ * are a value (the receiver keeps them as they are). A few random ones.
+ */
+asn_random_fill_result_t
+ANY_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
+                const asn_encoding_constraints_t *constraints,
+                size_t max_length) {
+    const asn_OCTET_STRING_specifics_t *specs =
+        td->specifics ? (const asn_OCTET_STRING_specifics_t *)td->specifics
+                      : &asn_SPC_ANY_specs;
+    asn_random_fill_result_t ok = {ARFILL_OK, 0};
+    asn_random_fill_result_t failed = {ARFILL_FAILED, 0};
+    asn_random_fill_result_t skipped = {ARFILL_SKIPPED, 0};
+    ANY_t *st = (ANY_t *)*sptr;
+    size_t n;
+
+    (void)constraints;
+    if(max_length == 0) return skipped;
+    n = (size_t)asn_random_between(1, max_length < 8 ? (intmax_t)max_length : 8);
+    if(!st) {
+        st = (ANY_t *)(*sptr = CALLOC(1, specs->struct_size));
+        if(!st) return failed;
+    }
+    st->buf = (uint8_t *)CALLOC(1, n + 1);
+    if(!st->buf) return failed;
+    for(size_t i = 0; i < n; i++) st->buf[i] = (uint8_t)asn_random_between(0, 255);
+    st->size = (int)n;
+    ok.length = n;
+    return ok;
+}

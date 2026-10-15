@@ -288,6 +288,40 @@ OPEN_TYPE_xer_get(const asn_codec_ctx_t *opt_codec_ctx,
 }
 
 
+asn_random_fill_result_t
+OPEN_TYPE_random_fill_selected(const asn_TYPE_descriptor_t *parent_type,
+                               const void *parent, const asn_TYPE_member_t *elm,
+                               void **value_ptr, size_t max_length) {
+    asn_random_fill_result_t failed = {ARFILL_FAILED, 0};
+    const asn_CHOICE_specifics_t *cspecs;
+    asn_type_selector_result_t selected;
+    asn_random_fill_result_t res;
+    void *inner;
+
+    if(!elm->type_selector) return failed;
+    selected = elm->type_selector(parent_type, parent);
+    if(!selected.presence_index
+       || selected.presence_index > elm->type->elements_count
+       || !selected.type_descriptor->op->random_fill)
+        return failed;
+    cspecs = (const asn_CHOICE_specifics_t *)elm->type->specifics;
+    if(!*value_ptr) {
+        *value_ptr = CALLOC(1, cspecs->struct_size);
+        if(!*value_ptr) return failed;
+    }
+    inner = (char *)*value_ptr
+            + elm->type->elements[selected.presence_index - 1].memb_offset;
+    res = selected.type_descriptor->op->random_fill(
+        selected.type_descriptor, &inner,
+        &selected.type_descriptor->encoding_constraints, max_length);
+    if(res.code == ARFILL_OK
+       && CHOICE_variant_set_presence(elm->type, *value_ptr,
+                                      selected.presence_index) != 0) {
+        res.code = ARFILL_FAILED;
+    }
+    return res;
+}
+
 #ifndef  ASN_DISABLE_PER_SUPPORT
 
 asn_dec_rval_t

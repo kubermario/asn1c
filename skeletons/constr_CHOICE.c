@@ -1301,7 +1301,9 @@ CHOICE_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
 		memb_ptr2 = &memb_ptr;
 	}
 
-    res = elm->type->op->random_fill(elm->type, memb_ptr2,
+    res = (elm->flags & ATF_OPEN_TYPE)
+        ? OPEN_TYPE_random_fill_selected(td, st, elm, memb_ptr2, max_length)
+        : elm->type->op->random_fill(elm->type, memb_ptr2,
                                     &elm->encoding_constraints, max_length);
     _set_present_idx(st, specs->pres_offset, specs->pres_size, present);
     if(res.code == ARFILL_OK) {

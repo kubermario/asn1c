@@ -78,6 +78,17 @@ asn_dec_rval_t OPEN_TYPE_oer_get_element(const asn_codec_ctx_t *opt_codec_ctx,
                                          void **element_ptr, const void *ptr,
                                          size_t size);
 
+/*
+ * A random value for an open type, consistent with the identifier already drawn in
+ * the structure the type selector reads (parent_type/parent: a SEQUENCE, a CHOICE,
+ * or the list for a SEQUENCE OF component). ARFILL_FAILED when that identifier
+ * selects nothing — the caller draws it again. *value_ptr is the open type's CHOICE,
+ * allocated when NULL.
+ */
+asn_random_fill_result_t OPEN_TYPE_random_fill_selected(
+    const asn_TYPE_descriptor_t *parent_type, const void *parent,
+    const asn_TYPE_member_t *element, void **value_ptr, size_t max_length);
+
 asn_enc_rval_t OPEN_TYPE_encode_oer(const asn_TYPE_descriptor_t *type_descriptor,
                                     const asn_oer_constraints_t *constraints,
                                     const void *struct_ptr,

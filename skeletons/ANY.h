@@ -30,6 +30,7 @@ xer_type_encoder_f ANY_encode_xer;
 per_type_decoder_f ANY_decode_uper;
 per_type_encoder_f ANY_encode_uper;
 oer_type_decoder_f ANY_decode_oer;
+asn_random_fill_f ANY_random_fill;
 oer_type_encoder_f ANY_encode_oer;
 
 #define ANY_free         OCTET_STRING_free
