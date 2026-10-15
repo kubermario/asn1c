@@ -283,9 +283,19 @@ constraint_type_resolve(arg_t *arg, asn1p_constraint_t *ct) {
         DEBUG("Found %s in constraints", "ValueSet");
     } else if(get_reference_from(ct)) {
         arg_t tmparg;
+        /*
+         * A contained subtype may itself be a parameterized reference with its
+         * own actual parameters, e.g. IEEE 1609.2.1's
+         *   ScmsPdu (ScmsPdu-Scoped { AcaRaInterfacePdu (...) } | ...)
+         * Those parameters, not the enclosing type's, specialize it; using the
+         * enclosing type's (none here) failed with "expects specialization".
+         */
+        asn1p_expr_t *rhs_pspecs = arg->expr->rhs_pspecs;
+        if(ct->containedSubtype->type == ATV_TYPE
+           && ct->containedSubtype->value.v_type->rhs_pspecs)
+            rhs_pspecs = ct->containedSubtype->value.v_type->rhs_pspecs;
 
-        rtype = asn1f_lookup_symbol(arg, arg->expr->rhs_pspecs,
-                                    get_reference_from(ct));
+        rtype = asn1f_lookup_symbol(arg, rhs_pspecs, get_reference_from(ct));
         if(!rtype) {
             FATAL(
                 "Cannot find type \"%s\" in constraints "
