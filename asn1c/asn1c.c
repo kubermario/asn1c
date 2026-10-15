@@ -603,7 +603,7 @@ usage(const char *av0) {
 "  -fknown-extern-type=<name>    Pretend the specified type is known\n"
 "  -fline-refs           Include ASN.1 module's line numbers in comments\n"
 "  -fsplit-specializations=<Name>[,...]  Write each specialization of these\n"
-"                        parameterized types to its own .c/.h\n"
+"                        parameterized types to its own .c/.h (* = all)\n"
 "  -fno-constraints      Do not generate the constraint checking code\n"
 "  -fno-include-deps     Do not generate the courtesy #includes for dependencies\n"
 "  -funnamed-unions      Enable unnamed unions in structures\n"

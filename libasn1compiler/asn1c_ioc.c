@@ -295,8 +295,25 @@ emit_ioc_cell(arg_t *arg, struct asn1p_ioc_cell_s *cell) {
         }
         while(def && (def->_mark & TM_SUPPRESSED) && def->suppressed_by)
             def = def->suppressed_by;
-        OUT("aioc__type, &asn_DEF_%s", MKID(def && !def->lhs_params ? def : cell->value));
+        /*
+         * A parameterized type given its actual parameters (TS 103 759:
+         * "MbSingleObservation{{SetMbObsCamBeacon}} BY ...") resolves to that
+         * specialization, which is what has a descriptor; the bare template has none.
+         */
+        OUT("aioc__type, &asn_DEF_%s",
+            MKID(def && (!def->lhs_params || def->spec_index != -1) ? def : cell->value));
+    } else if(cell->value->meta_type == AMT_TYPE && !cell->value->constraints
+              && !TQ_FIRST(&cell->value->members)) {
+        /*
+         * A builtin with no constraint — IEEE 1609.2 "ISSUE NULL REQUEST NULL" —
+         * has a library descriptor of its own (asn_DEF_NULL, asn_DEF_BOOLEAN…).
+         */
+        GEN_INCLUDE(asn1c_type_name(arg, cell->value, TNF_INCLUDE));
+        OUT("aioc__type, &asn_DEF_%s", asn1c_type_name(arg, cell->value, TNF_SAFE));
     } else {
+        FATAL("Information Object field %s at line %d: an inline constrained or "
+              "constructed type has no descriptor to name; give it a type name",
+              cell->field->Identifier, cell->value->_lineno);
         return -1;
     }
 

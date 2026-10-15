@@ -7,6 +7,7 @@
 
 #include <asn_internal.h>
 #include <constr_CHOICE.h>
+#include <OPEN_TYPE.h>
 #include <errno.h>
 
 /*
@@ -238,7 +239,10 @@ CHOICE_decode_oer(const asn_codec_ctx_t *opt_codec_ctx,
         /* Set presence to be able to free it properly at any time */
         (void)CHOICE_variant_set_presence(td, st, ctx->step + 1);
 
-        if(specs->ext_start >= 0 && specs->ext_start <= ctx->step) {
+        if(elm->flags & ATF_OPEN_TYPE) {
+            /* Typed by the structure holding this CHOICE (see constr_CHOICE.c) */
+            rval = OPEN_TYPE_oer_get(opt_codec_ctx, td, st, elm, ptr, size);
+        } else if(specs->ext_start >= 0 && specs->ext_start <= ctx->step) {
             ssize_t got =
                 oer_open_type_get(opt_codec_ctx, elm->type,
                                   elm->encoding_constraints.oer_constraints,

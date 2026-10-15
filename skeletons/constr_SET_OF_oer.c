@@ -7,6 +7,7 @@
 
 #include <asn_internal.h>
 #include <constr_SET_OF.h>
+#include <OPEN_TYPE.h>
 #include <asn_SET_OF.h>
 #include <errno.h>
 
@@ -171,10 +172,14 @@ SET_OF_decode_oer(const asn_codec_ctx_t *opt_codec_ctx,
         ASN_DEBUG("OER SET OF %s Decoding PHASE 1", td->name);
 
         for(; ctx->left > 0; ctx->left--) {
-            asn_dec_rval_t rv = elm->type->op->oer_decoder(
-                opt_codec_ctx, elm->type,
-                elm->encoding_constraints.oer_constraints, &ctx->ptr, ptr,
-                size);
+            asn_dec_rval_t rv =
+                (elm->flags & ATF_OPEN_TYPE)   /* typed by the container */
+                    ? OPEN_TYPE_oer_get_element(opt_codec_ctx, td, st, elm,
+                                                &ctx->ptr, ptr, size)
+                    : elm->type->op->oer_decoder(
+                          opt_codec_ctx, elm->type,
+                          elm->encoding_constraints.oer_constraints, &ctx->ptr,
+                          ptr, size);
             ADVANCE(rv.consumed);
             switch(rv.code) {
             case RC_OK:

@@ -56,6 +56,33 @@ asn_enc_rval_t OPEN_TYPE_encode_uper(
     const asn_per_constraints_t *constraints, const void *struct_ptr,
     asn_per_outp_t *per_output);
 
+/*
+ * The element of a SEQUENCE OF / SET OF whose component is an open type
+ * ("SEQUENCE OF CLASS.&Type({Set}{@.id})"). The element's type is selected by
+ * a member of the structure that CONTAINS the list, so the element's
+ * type_selector is given the list (list_type, list) and is generated to reach
+ * that structure from it. *element_ptr is the element's CHOICE, allocated when
+ * NULL.
+ */
+asn_dec_rval_t OPEN_TYPE_uper_get_element(const asn_codec_ctx_t *opt_codec_ctx,
+                                          const asn_TYPE_descriptor_t *list_type,
+                                          const void *list,
+                                          const asn_TYPE_member_t *element,
+                                          void **element_ptr,
+                                          asn_per_data_t *pd);
+
+asn_dec_rval_t OPEN_TYPE_oer_get_element(const asn_codec_ctx_t *opt_codec_ctx,
+                                         const asn_TYPE_descriptor_t *list_type,
+                                         const void *list,
+                                         const asn_TYPE_member_t *element,
+                                         void **element_ptr, const void *ptr,
+                                         size_t size);
+
+asn_enc_rval_t OPEN_TYPE_encode_oer(const asn_TYPE_descriptor_t *type_descriptor,
+                                    const asn_oer_constraints_t *constraints,
+                                    const void *struct_ptr,
+                                    asn_app_consume_bytes_f *cb, void *app_key);
+
 #ifdef __cplusplus
 }
 #endif

@@ -394,7 +394,7 @@ asn1c_save_compiled_output(arg_t *arg, const char *datadir, const char *destdir,
         TQ_FOR(mod, &(arg->asn->modules), mod_next) {
             TQ_FOR(arg->expr, &(mod->members), next) {
                 /* Skip suppressed types - they were marked as duplicates during conflict resolution */
-                if(arg->expr->_mark & TM_SUPPRESSED) {
+                if(arg->expr->_mark & (TM_SUPPRESSED | TM_CLASSALIAS)) {
                     continue;
                 }
 
@@ -807,7 +807,7 @@ generate_pdu_collection(arg_t *arg) {
 
     TQ_FOR(mod, &(arg->asn->modules), mod_next) {
         TQ_FOR(arg->expr, &(mod->members), next) {
-            if(arg->expr->_mark & TM_SUPPRESSED) continue;
+            if(arg->expr->_mark & (TM_SUPPRESSED | TM_CLASSALIAS)) continue;
             if(include_type_to_pdu_collection(arg) == TI_NOT_INCLUDED) continue;
             abuf_printf(buf,
                         "extern struct asn_TYPE_descriptor_s "
@@ -821,7 +821,7 @@ generate_pdu_collection(arg_t *arg) {
     TQ_FOR(mod, &(arg->asn->modules), mod_next) {
         int mod_printed = 0;
         TQ_FOR(arg->expr, &(mod->members), next) {
-            if(arg->expr->_mark & TM_SUPPRESSED) continue;
+            if(arg->expr->_mark & (TM_SUPPRESSED | TM_CLASSALIAS)) continue;
             switch(include_type_to_pdu_collection(arg)) {
             case TI_NOT_INCLUDED:
                 continue;

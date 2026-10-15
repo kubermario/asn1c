@@ -133,9 +133,19 @@ _asn1f_parse_object_cb(const uint8_t *buf, size_t size, void *keyp) {
 		return ret;
 	}
 
-    /* Add object to a CLASS. */
-    if(_asn1f_add_unique_row(arg, eclass, row) != 0)
-        return -1;
+    /*
+     * Add object to a CLASS. Two object sets of one class may give the same
+     * identifier to different objects (TS 103 759: every observation set of
+     * C-2ENT numbers its own observations from 1); that is legal, and only the
+     * class-wide table — not the set being parsed — can't hold both. Losing the
+     * set here left it empty, and its open type untyped.
+     */
+    if(_asn1f_add_unique_row(arg, eclass, row) != 0) {
+        DEBUG("Object %d of %s shares its identifier with another object of "
+              "CLASS %s; kept in the set only", key->sequence, expr->Identifier,
+              eclass->Identifier);
+        asn1p_ioc_row_delete(row);
+    }
 
     /*
      * Add a copy of the object to the Information Object Set.
@@ -198,6 +208,15 @@ _asn1f_foreach_unparsed(arg_t *arg, const asn1p_constraint_t *ct,
     case ACT_CA_CSV:    /* , */
         break;
     case ACT_EL_VALUE:
+        /*
+         * A lone object: "{ {A2 BY 1}, ... }" has no union to walk, so this is
+         * where it gets parsed. Returning without it left every one-object set
+         * empty (TS 103 759 has several) and its open type untyped.
+         */
+        if(process && ct->value && ct->value->type == ATV_UNPARSED) {
+            return process(ct->value->value.string.buf + 1,
+                           ct->value->value.string.size - 2, keyp);
+        }
         return 0;
     }
 

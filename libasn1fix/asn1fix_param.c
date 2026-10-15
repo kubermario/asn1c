@@ -217,6 +217,31 @@ compare_specializations(const asn1p_expr_t *a, const asn1p_expr_t *b) {
  * This allows parameterized types to be generated even when IOC sets are empty,
  * which is common in ETSI ITS standards for regional extension points.
  */
+/*
+ * What a reference that did not resolve becomes in the specialization.
+ *
+ * ESRCH means "this is not one of the template's parameters": a plain type (BarExt), a
+ * class field (EXT-TYPE.&ExtContent({Set}{@id})) or a builtin. It must be cloned as written —
+ * its constraints still go through the value resolver, which is what turns {Set} into the
+ * actual object set and lets the open-type machinery type the field. Replacing it with ANY
+ * (what this fork used to do for every unresolved reference) changed the wire format: ANY is
+ * an open type in PER, length-prefixed, where the specification has the plain encoding.
+ *
+ * Any other errno is a parameter that matched but could not be used — the case the ANY
+ * fallback was written for (an empty extensible object set such as DSRC Reg-*).
+ */
+static asn1p_expr_t *
+any_fallback(asn1p_expr_t *expr_to_resolve) {
+	asn1p_expr_t *nex;
+	if(errno == ESRCH) return NULL;
+	nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
+	if(!nex) return NULL;
+	nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
+	nex->meta_type = AMT_TYPE;
+	nex->expr_type = ASN_TYPE_ANY;
+	return nex;
+}
+
 static asn1p_expr_t *
 resolve_expr(asn1p_expr_t *expr_to_resolve, void *resolver_arg) {
 	resolver_arg_t *rarg = resolver_arg;
@@ -230,41 +255,17 @@ resolve_expr(asn1p_expr_t *expr_to_resolve, void *resolver_arg) {
 	if(expr_to_resolve->meta_type == AMT_TYPEREF) {
 		expr = find_target_specialization_byref(rarg,
 				expr_to_resolve->reference);
-		/* Fallback to ANY type if resolution fails (empty IOC set) */
-		if(!expr) {
-			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
-			if(!nex) return NULL;
-			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
-			nex->meta_type = AMT_TYPE;
-			nex->expr_type = ASN_TYPE_ANY;
-			return nex;
-		}
+		if(!expr) return any_fallback(expr_to_resolve);
 	} else if(expr_to_resolve->meta_type == AMT_VALUE) {
 		if(!expr_to_resolve->value) return NULL;
 		expr = find_target_specialization_bystr(rarg,
 				expr_to_resolve->Identifier);
-		/* Fallback to ANY type if resolution fails (empty IOC set) */
-		if(!expr) {
-			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
-			if(!nex) return NULL;
-			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
-			nex->meta_type = AMT_TYPE;
-			nex->expr_type = ASN_TYPE_ANY;
-			return nex;
-		}
+		if(!expr) return any_fallback(expr_to_resolve);
 	} else if(expr_to_resolve->meta_type == AMT_VALUESET) {
 		assert(expr_to_resolve->constraints);
 		expr = find_target_specialization_byvalueset(rarg,
 				expr_to_resolve->constraints);
-		/* Fallback to ANY type if resolution fails (empty IOC set) */
-		if(!expr) {
-			nex = asn1p_expr_new(expr_to_resolve->_lineno, NULL);
-			if(!nex) return NULL;
-			nex->Identifier = expr_to_resolve->Identifier ? strdup(expr_to_resolve->Identifier) : NULL;
-			nex->meta_type = AMT_TYPE;
-			nex->expr_type = ASN_TYPE_ANY;
-			return nex;
-		}
+		if(!expr) return any_fallback(expr_to_resolve);
 	} else {
 		errno = ESRCH;
 		return NULL;

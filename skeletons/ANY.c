@@ -23,8 +23,8 @@ asn_TYPE_operation_t asn_OP_ANY = {
 	0,
 	0,
 #else
-	0,
-	0,
+	ANY_decode_oer,
+	ANY_encode_oer,
 #endif  /* ASN_DISABLE_OER_SUPPORT */
 #ifdef	ASN_DISABLE_PER_SUPPORT
 	0, 0,
@@ -275,3 +275,71 @@ ANY_encode_uper(const asn_TYPE_descriptor_t *td,
 
 #endif /* ASN_DISABLE_PER_SUPPORT */
 
+#ifndef ASN_DISABLE_OER_SUPPORT
+
+/*
+ * In OER an ANY stands where the specification has an open type (an IOC field
+ * whose object set gives nothing to dispatch to, e.g. an empty extensible set):
+ * a length determinant followed by the contents octets (ITU-T X.696 30).
+ */
+asn_dec_rval_t
+ANY_decode_oer(const asn_codec_ctx_t *opt_codec_ctx,
+               const asn_TYPE_descriptor_t *td,
+               const asn_oer_constraints_t *constraints, void **sptr,
+               const void *ptr, size_t size) {
+    const asn_OCTET_STRING_specifics_t *specs =
+        td->specifics ? (const asn_OCTET_STRING_specifics_t *)td->specifics
+                      : &asn_SPC_ANY_specs;
+    asn_dec_rval_t rval = {RC_OK, 0};
+    ANY_t *st = (ANY_t *)*sptr;
+    size_t len;
+    ssize_t len_len;
+
+    (void)opt_codec_ctx;
+    (void)constraints;
+
+    if(!st) {
+        st = (ANY_t *)(*sptr = CALLOC(1, specs->struct_size));
+        if(!st) ASN__DECODE_FAILED;
+    }
+
+    len_len = oer_fetch_length(ptr, size, &len);
+    if(len_len < 0) ASN__DECODE_FAILED;
+    if(len_len == 0) ASN__DECODE_STARVED;
+    if(len > size - (size_t)len_len) ASN__DECODE_STARVED;
+    if(len > INT_MAX) ASN__DECODE_FAILED;   /* ANY_t.size is an int */
+
+    {
+        uint8_t *p = (uint8_t *)REALLOC(st->buf, len + 1);
+        if(!p) ASN__DECODE_FAILED;
+        st->buf = p;
+        memcpy(st->buf, (const uint8_t *)ptr + len_len, len);
+        st->buf[len] = 0;
+        st->size = (int)len;
+    }
+
+    rval.consumed = len_len + len;
+    return rval;
+}
+
+asn_enc_rval_t
+ANY_encode_oer(const asn_TYPE_descriptor_t *td,
+               const asn_oer_constraints_t *constraints, const void *sptr,
+               asn_app_consume_bytes_f *cb, void *app_key) {
+    const ANY_t *st = (const ANY_t *)sptr;
+    asn_enc_rval_t er = {0, td, sptr};
+    ssize_t len_len;
+
+    (void)constraints;
+
+    if(!st || st->size < 0 || (!st->buf && st->size)) ASN__ENCODE_FAILED;
+
+    len_len = oer_serialize_length(st->size, cb, app_key);
+    if(len_len < 0) ASN__ENCODE_FAILED;
+    if(st->size && cb(st->buf, st->size, app_key) < 0) ASN__ENCODE_FAILED;
+
+    er.encoded = len_len + st->size;
+    ASN__ENCODED_OK(er);
+}
+
+#endif  /* ASN_DISABLE_OER_SUPPORT */

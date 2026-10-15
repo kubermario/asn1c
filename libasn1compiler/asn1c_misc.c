@@ -71,6 +71,7 @@ asn1c_split_specialization(asn1p_expr_t *expr) {
 	char name[512];
 	if(!split_specializations || !expr || !expr->Identifier) return 0;
 	if(!expr->lhs_params && expr->spec_index == -1) return 0;
+	if(strcmp(split_specializations, ",*,") == 0) return 1;	/* every template */
 	snprintf(name, sizeof(name), ",%s%s%s,", module_prefix_of(expr),
 	         module_sep_of(expr), expr->Identifier);
 	for(char *p = name; *p; p++) if(*p == '-') *p = '_';
@@ -119,7 +120,15 @@ asn1c_make_identifier(enum ami_flags_e flags, asn1p_expr_t *expr, ...) {
 			size += strlen(pfx_name) + 2;
 			sptr[sptr_cnt++] = (char *)pfx_name;
 		}
-		sptr[sptr_cnt++] = expr->Identifier;
+		if(expr->_mark & TM_CASECLASH) {
+			/* Later of two same-module names differing only by case: "<name>2". */
+			static char casebuf[512];
+			snprintf(casebuf, sizeof(casebuf), "%s2", expr->Identifier);
+			sptr[sptr_cnt++] = casebuf;
+			size += 1;
+		} else {
+			sptr[sptr_cnt++] = expr->Identifier;
+		}
 
 		size += strlen(expr->Identifier);
 		if(expr->spec_index != -1) {
@@ -292,7 +301,7 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 			}
 		}
 
-		if(terminal && ((terminal->spec_index != -1) || (terminal->_mark & TM_NAMECLASH))) {
+		if(terminal && ((terminal->spec_index != -1) || (terminal->_mark & (TM_NAMECLASH | TM_CASECLASH)))) {
 			exprid = terminal;
 			if(_format != TNF_RSAFE)
 				typename = 0;
@@ -385,6 +394,7 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 				? "\"" : "<"),
 			module_prefix_of(exprid), module_sep_of(exprid),
 			exprid ? exprid->Identifier : typename,
+			(exprid && (exprid->_mark & TM_CASECLASH)) ? "2" : "",
 			((!stdname || (arg->flags & A1C_INCLUDES_QUOTED))
 				? ".h\"" : ".h>"), (char*)0);
 	case TNF_SAFE:
@@ -394,6 +404,18 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 		return asn1c_make_identifier(0, exprid,
 				exprid?"t":typename, exprid?0:"t", (char*)0);
 	case TNF_RSAFE:	/* Recursion-safe type */
+		/*
+		 * A specialization is named after itself: "struct RegionalExtension"
+		 * for an element of "SEQUENCE OF RegionalExtension {{Reg-MapData}}"
+		 * named a struct nobody defines (it compiled only because a list holds
+		 * pointers, and left the element's type unknowable from the header).
+		 */
+		if(exprid && exprid->spec_index != -1) {
+			static char sbuf[512];
+			snprintf(sbuf, sizeof(sbuf), "struct %s",
+			         asn1c_make_identifier(0, exprid, (char*)0));
+			return sbuf;
+		}
 		return asn1c_make_identifier(AMI_CHECK_RESERVED | AMI_NODELIMITER, 0,
 			"struct", " ", module_prefix_of(exprid), module_sep_of(exprid), typename, (char*)0);
 	}

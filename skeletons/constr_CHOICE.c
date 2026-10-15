@@ -5,6 +5,7 @@
 #include <asn_internal.h>
 #include <constr_CHOICE.h>
 #include <per_opentype.h>
+#include <OPEN_TYPE.h>
 
 /*
  * Number of bytes left for this structure.
@@ -902,7 +903,11 @@ CHOICE_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 	}
 	ASN_DEBUG("Discovered CHOICE %s encodes %s", td->name, elm->name);
 
-	if(ct && ct->range_bits >= 0) {
+	if(elm->flags & ATF_OPEN_TYPE) {
+		/* An open type typed by the structure holding this CHOICE (IEEE 1609.2
+		 * CertIssueExtension.permissions.specific, selected by its id). */
+		rv = OPEN_TYPE_uper_get(opt_codec_ctx, td, st, elm, pd);
+	} else if(ct && ct->range_bits >= 0) {
 		rv = elm->type->op->uper_decoder(opt_codec_ctx, elm->type,
 			elm->encoding_constraints.per_constraints, memb_ptr2, pd);
 	} else {

@@ -336,6 +336,48 @@ is_open_type(arg_t *arg, asn1p_expr_t *expr, asn1c_ioc_table_and_objset_t *opt_i
     return 0;
 }
 
+/*
+ * An open type one level down from the SEQUENCE whose member types it: the
+ * component of a SEQUENCE OF ("observations SEQUENCE OF C.&Val({Set}{@.tgtId})",
+ * TS 103 759; IEEE 1609.2 ContributedExtensionBlock.extns) or an alternative of
+ * an inline CHOICE (IEEE 1609.2 CertIssueExtension: "permissions CHOICE {
+ * specific CERT-EXT-TYPE.&Issue({SetCertExtensions}{@.id}), all NULL }"). Set
+ * while that member is being emitted: the open type becomes its CHOICE of
+ * alternatives, and its type selector reaches the enclosing structure from the
+ * list / the CHOICE, which it holds by value.
+ */
+static struct {
+    asn1p_expr_t *inner;    /* the SEQUENCE OF (or CHOICE) member holding the open type */
+    asn1p_expr_t *outer;    /* the SEQUENCE holding it and the identifier */
+    arg_t outer_arg;        /* names the enclosing structure */
+    asn1c_ioc_table_and_objset_t ioc;
+} listed_ot;
+
+static int
+is_choiced_open_type(arg_t *arg, asn1p_expr_t *v, asn1c_ioc_table_and_objset_t *ioc) {
+    asn1p_expr_t *alt;
+    if(!ioc || !ioc->ioct || ioc->ioct->rows == 0) return 0;
+    if(v->expr_type != ASN_CONSTR_CHOICE || v->meta_type != AMT_TYPE) return 0;
+    if(v->marker.flags & (EM_INDIRECT | EM_OMITABLE)) return 0;
+    TQ_FOR(alt, &(v->members), next) {
+        if(alt->expr_type != A1TC_EXTENSIBLE && is_open_type(arg, alt, ioc)) return 1;
+    }
+    return 0;
+}
+
+static int
+is_listed_open_type(arg_t *arg, asn1p_expr_t *v, asn1c_ioc_table_and_objset_t *ioc) {
+    asn1p_expr_t *elem;
+    if(!ioc || !ioc->ioct || ioc->ioct->rows == 0) return 0;
+    if(v->expr_type != ASN_CONSTR_SEQUENCE_OF && v->expr_type != ASN_CONSTR_SET_OF)
+        return 0;
+    /* The selector reaches the enclosing structure by offsetof(): the list has
+     * to be embedded in it, not pointed to (OPTIONAL). */
+    if(v->marker.flags & (EM_INDIRECT | EM_OMITABLE)) return 0;
+    elem = TQ_FIRST(&v->members);
+    return elem && is_open_type(arg, elem, ioc);
+}
+
 int
 asn1c_lang_C_type_SEQUENCE(arg_t *arg) {
 	asn1p_expr_t *expr = arg->expr;
@@ -353,6 +395,21 @@ asn1c_lang_C_type_SEQUENCE(arg_t *arg) {
         }
     } else if(ioc_tao.fatal_error) {
         return -1;
+    }
+
+    /*
+     * An open type over an EMPTY extensible object set (DSRC RegionalExtension{{Reg-MapData}},
+     * nothing registered yet) has no alternative to dispatch to: keep the value as ANY — the
+     * open-type octets, which is exactly its PER encoding — rather than an empty union. The
+     * identifier column keeps its declared type.
+     */
+    if(ioc_tao.ioct && ioc_tao.ioct->rows == 0) {
+        TQ_FOR(v, &(expr->members), next) {
+            if(is_open_type(arg, v, &ioc_tao)) {
+                v->meta_type = AMT_TYPE;
+                v->expr_type = ASN_TYPE_ANY;
+            }
+        }
     }
 
 	if(arg->embed) {
@@ -387,6 +444,14 @@ asn1c_lang_C_type_SEQUENCE(arg_t *arg) {
             INDENT(-1);
             tmp_arg.embed--;
             if(v->expr_type != A1TC_EXTENSIBLE) OUT(";\n");
+        } else if(is_listed_open_type(arg, v, &ioc_tao)
+                  || is_choiced_open_type(arg, v, &ioc_tao)) {
+            listed_ot.inner = v;
+            listed_ot.outer = expr;
+            listed_ot.outer_arg = *arg;
+            listed_ot.ioc = ioc_tao;
+            EMBED_WITH_IOCT(v, ioc_tao);
+            listed_ot.inner = NULL;
         } else {
             EMBED_WITH_IOCT(v, ioc_tao);
         }
@@ -825,6 +890,24 @@ asn1c_lang_C_type_SEx_OF(arg_t *arg) {
 	 */
 	memb->marker.flags |= EM_INDIRECT;
 
+	if(listed_ot.inner == expr && is_open_type(arg, memb, &listed_ot.ioc)) {
+		arg_t tmp = *arg;
+		enum asn1p_expr_marker_e flags = memb->marker.flags;
+		if(!memb->Identifier) {
+			memb->Identifier = strdup("Member");
+			assert(memb->Identifier);
+		}
+		memb->_anonymous_type = 1;
+		memb->marker.flags &= ~EM_INDIRECT;
+		arg->embed++;
+		tmp = *arg;
+		tmp.expr = memb;
+		if(asn1c_lang_C_OpenType(&tmp, &listed_ot.ioc,
+		                         memb->reference->components[1].name))
+			return -1;
+		arg->embed--;
+		memb->marker.flags = flags;
+	} else
 	if(memb->expr_type & ASN_CONSTR_MASK
 	|| ((memb->expr_type == ASN_BASIC_ENUMERATED
 		|| (0 /* -- prohibited by X.693:8.3.4 */
@@ -920,7 +1003,9 @@ asn1c_lang_C_type_SEx_OF_def(arg_t *arg, int seq_of) {
 		}
 		v->_anonymous_type = 1;
 		arg->embed++;
-		emit_member_table(arg, v, NULL);
+		emit_member_table(arg, v,
+			(listed_ot.inner == expr && is_open_type(arg, v, &listed_ot.ioc))
+				? &listed_ot.ioc : NULL);
 		arg->embed--;
 		free(v->Identifier);
 		v->Identifier = (char *)NULL;
@@ -1019,6 +1104,19 @@ asn1c_lang_C_type_CHOICE(arg_t *arg) {
 		}
 		OUT("{\n");
 		TQ_FOR(v, &(expr->members), next) {
+			if(listed_ot.inner == expr && v->expr_type != A1TC_EXTENSIBLE
+			   && is_open_type(arg, v, &listed_ot.ioc)) {
+				arg_t tmp_arg = *arg;
+				tmp_arg.embed++;
+				INDENT(+1);
+				tmp_arg.expr = v;
+				if(asn1c_lang_C_OpenType(&tmp_arg, &listed_ot.ioc,
+				                         v->reference->components[1].name))
+					return -1;
+				INDENT(-1);
+				OUT(";\n");
+				continue;
+			}
 			EMBED(v);
 		}
 		if(UNNAMED_UNIONS)	OUT("};\n");
@@ -1084,6 +1182,7 @@ asn1c_lang_C_OpenType(arg_t *arg, asn1c_ioc_table_and_objset_t *opt_ioc,
     open_type_choice->expr_type = ASN_CONSTR_OPEN_TYPE;
     open_type_choice->_type_unique_index = arg->expr->_type_unique_index;
     open_type_choice->parent_expr = arg->expr->parent_expr;
+    open_type_choice->_anonymous_type = arg->expr->_anonymous_type;
 
     for(size_t row = 0; row < opt_ioc->ioct->rows; row++) {
         struct asn1p_ioc_cell_s *cell =
@@ -1092,6 +1191,28 @@ asn1c_lang_C_OpenType(arg_t *arg, asn1c_ioc_table_and_objset_t *opt_ioc,
         if(!cell->value) continue;
 
         asn1p_expr_t *m = asn1p_expr_clone(cell->value, 0);
+        if(cell->value->rhs_pspecs) {
+            /*
+             * A parameterized type given its actual parameters ("Single{{SetA}}"):
+             * the alternative is that specialization. The clone does not carry
+             * the parameters, and every specialization would share the template's
+             * name — keep both, and name the alternative after the specialization.
+             */
+            m->rhs_pspecs = asn1p_expr_clone(cell->value->rhs_pspecs, 0);
+            asn1p_expr_t *def = WITH_MODULE_NAMESPACE(
+                cell->value->module, expr_ns,
+                asn1f_lookup_symbol_ex(arg->asn, expr_ns, cell->value,
+                                       cell->value->reference));
+            if(def && def->spec_index != -1) {
+                free(m->Identifier);
+                m->Identifier = strdup(asn1c_make_identifier(0, def, (char *)0));
+            }
+        }
+        if(m->meta_type == AMT_TYPE && m->expr_type == ASN_BASIC_NULL) {
+            /* "ISSUE NULL": a union member named NULL is the C macro */
+            free(m->Identifier);
+            m->Identifier = strdup("Null");
+        }
         if (asn1p_lookup_child(open_type_choice, m->Identifier))
             m->_mark |= TM_SKIPinUNION;
         asn1p_expr_add(open_type_choice, m);
@@ -1101,20 +1222,14 @@ asn1c_lang_C_OpenType(arg_t *arg, asn1c_ioc_table_and_objset_t *opt_ioc,
     GEN_INCLUDE_STD("OPEN_TYPE");
     asn1c_lang_C_type_CHOICE(&tmp_arg);
 
-    /* CRITICAL FIX: Add the IOC-generated type to the module's member list
-     * so it gets saved as a separate .c/.h file pair. Without this, the type
-     * is processed but never written to disk, causing "file not found" errors
-     * during compilation. This ensures all IOC-derived types are properly generated. */
-    asn1p_module_t *module = arg->expr->module;
-    if(module) {
-        /* Add to module's member list so it gets saved */
-        TQ_ADD(&(module->members), open_type_choice, next);
-        /* Do NOT free - it's now owned by the module */
-    } else {
-        /* Fallback: if no module, free as before */
-        asn1p_expr_free(tmp_arg.expr);
-    }
-
+    /*
+     * The open type is emitted in place, inside its parent: its descriptor is the
+     * parent's. It used to be appended to the module as well, which compiled it a
+     * second time as a top-level type named after the MEMBER — a junk file per open
+     * type (poiBlock.c, suContent.c…), and one file shared by every specialization of
+     * a template (regExtValue.c for all the RegionalExtension{{Reg-…}}), which does
+     * not compile. Not freed: nothing guarantees no later pass still points into it.
+     */
     return 0;
 }
 
@@ -1158,7 +1273,9 @@ asn1c_lang_C_type_CHOICE_def(arg_t *arg) {
 		INDENTED(TQ_FOR(v, &(expr->members), next) {
 			if(v->expr_type == A1TC_EXTENSIBLE)
 				continue;
-			emit_member_table(arg, v, NULL);
+			emit_member_table(arg, v,
+				(listed_ot.inner == expr && is_open_type(arg, v, &listed_ot.ioc))
+					? &listed_ot.ioc : NULL);
 			elements++;
 		});
 		OUT("};\n");
@@ -2528,6 +2645,11 @@ static int
 emit_member_type_selector(arg_t *arg, asn1p_expr_t *expr, asn1c_ioc_table_and_objset_t *opt_ioc) {
 	int save_target = arg->target->target;
     asn1p_expr_t *parent_expr = arg->expr;
+    /* The element of a listed open type: the identifier is in the structure
+     * that holds the list. */
+    int listed = (listed_ot.inner && arg->expr == listed_ot.inner);
+    arg_t *holder = listed ? &listed_ot.outer_arg : arg;
+    if(listed) parent_expr = listed_ot.outer;
 
     const asn1p_constraint_t *crc =
         asn1p_get_component_relation_constraint(expr->combined_constraints);
@@ -2706,11 +2828,16 @@ emit_member_type_selector(arg_t *arg, asn1p_expr_t *expr, asn1c_ioc_table_and_ob
     OUT("size_t constraining_column = %zu; /* %s */\n", constraining_column, cfield);
     OUT("size_t for_column = %zu; /* %s */\n", for_column, for_field);
     OUT("size_t row;\n");
+    if(listed) {
+        /* parent_sptr is the list; the identifier is beside it */
+        OUT("parent_sptr = (const char *)parent_sptr - offsetof(%s, %s);\n",
+            c_name(holder).full_name, MKID_safe(listed_ot.inner));
+    }
 
     const char *tname = asn1c_type_name(arg, constraining_memb, TNF_SAFE);
     if(constraining_memb->marker.flags & EM_INDIRECT) {
         OUT("const void *memb_ptr = *(const void **)");
-        OUT("((const char *)parent_sptr + offsetof(%s", c_name(arg).full_name);
+        OUT("((const char *)parent_sptr + offsetof(%s", c_name(holder).full_name);
         OUT(", %s));", MKID_safe(constraining_memb));
         OUT("if(!memb_ptr) return result;\n");
         OUT("\n");
@@ -2731,7 +2858,7 @@ emit_member_type_selector(arg_t *arg, asn1p_expr_t *expr, asn1c_ioc_table_and_ob
     if(constraining_memb->marker.flags & EM_INDIRECT) {
         OUT("memb_ptr;\n");
     } else {
-        OUT("((const char *)parent_sptr + offsetof(%s", c_name(arg).full_name);
+        OUT("((const char *)parent_sptr + offsetof(%s", c_name(holder).full_name);
         OUT(", %s));\n", MKID_safe(constraining_memb));
     }
     OUT("\n");

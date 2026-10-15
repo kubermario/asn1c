@@ -255,7 +255,10 @@ typedef struct asn1p_expr_s {
 	  TM_NAMEGIVEN  = (1<<4),  /* The expression has already yielded a name */
 	  TM_SKIPinUNION  = (1<<5), /* Do not include this identifier in union again due to name duplication,
                                       especially for OPENTYPE. */
-	  TM_SUPPRESSED = (1<<6)   /* Type suppressed due to priority-based conflict resolution */
+	  TM_SUPPRESSED = (1<<6),  /* Type suppressed due to priority-based conflict resolution */
+	  TM_CASECLASH  = (1<<7),  /* Same module, name differs from an earlier one only by case:
+	                              its C identifiers and files get a "2" suffix */
+	  TM_CLASSALIAS = (1<<8)   /* "C-ASR-EV ::= C-2ENT": names a class, not a type; no C output */
 	} _mark;
 
 	/*

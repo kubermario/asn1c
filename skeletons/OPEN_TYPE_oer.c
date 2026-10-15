@@ -90,3 +90,78 @@ OPEN_TYPE_oer_get(const asn_codec_ctx_t *opt_codec_ctx,
     }
     return rv;
 }
+
+asn_dec_rval_t
+OPEN_TYPE_oer_get_element(const asn_codec_ctx_t *opt_codec_ctx,
+                          const asn_TYPE_descriptor_t *list_type,
+                          const void *list, const asn_TYPE_member_t *elm,
+                          void **element_ptr, const void *ptr, size_t size) {
+    const asn_CHOICE_specifics_t *cspecs;
+    asn_type_selector_result_t selected;
+    void *inner_value;
+    asn_dec_rval_t rv = {RC_OK, 0};
+    ssize_t ot_ret;
+
+    if(!(elm->flags & ATF_OPEN_TYPE) || !elm->type_selector) {
+        ASN__DECODE_FAILED;
+    }
+    selected = elm->type_selector(list_type, list);
+    if(!selected.presence_index
+       || selected.presence_index > elm->type->elements_count) {
+        ASN__DECODE_FAILED;
+    }
+    cspecs = (const asn_CHOICE_specifics_t *)elm->type->specifics;
+    if(!*element_ptr) {
+        *element_ptr = CALLOC(1, cspecs->struct_size);
+        if(!*element_ptr) ASN__DECODE_FAILED;
+    }
+
+    inner_value = (char *)*element_ptr
+                  + elm->type->elements[selected.presence_index - 1].memb_offset;
+    ot_ret = oer_open_type_get(opt_codec_ctx, selected.type_descriptor, NULL,
+                               &inner_value, ptr, size);
+    if(ot_ret == 0) {
+        rv.code = RC_WMORE;
+    } else if(ot_ret < 0) {
+        rv.code = RC_FAIL;
+    } else if(CHOICE_variant_set_presence(elm->type, *element_ptr,
+                                          selected.presence_index) != 0) {
+        rv.code = RC_FAIL;
+    } else {
+        rv.consumed = ot_ret;
+    }
+    return rv;
+}
+
+/*
+ * The value of an open type, in OER: the encoding of the selected alternative,
+ * wrapped as an open type (length determinant + octets, ITU-T X.696 30).
+ */
+asn_enc_rval_t
+OPEN_TYPE_encode_oer(const asn_TYPE_descriptor_t *td,
+                     const asn_oer_constraints_t *constraints,
+                     const void *sptr, asn_app_consume_bytes_f *cb,
+                     void *app_key) {
+    const asn_TYPE_member_t *elm;
+    const void *memb_ptr;
+    asn_enc_rval_t er = {0, td, sptr};
+    unsigned present;
+    ssize_t written;
+
+    (void)constraints;
+
+    present = CHOICE_variant_get_presence(td, sptr);
+    if(present == 0 || present > td->elements_count) ASN__ENCODE_FAILED;
+    elm = &td->elements[present - 1];
+    if(elm->flags & ATF_POINTER) {
+        memb_ptr = *(const void *const *)((const char *)sptr + elm->memb_offset);
+        if(!memb_ptr) ASN__ENCODE_FAILED;
+    } else {
+        memb_ptr = (const char *)sptr + elm->memb_offset;
+    }
+
+    written = oer_open_type_put(elm->type, NULL, memb_ptr, cb, app_key);
+    if(written < 0) ASN__ENCODE_FAILED;
+    er.encoded = written;
+    ASN__ENCODED_OK(er);
+}

@@ -16,7 +16,12 @@ asn_TYPE_operation_t asn_OP_OPEN_TYPE = {
 	OPEN_TYPE_encode_der,
 	OPEN_TYPE_decode_xer,
 	OPEN_TYPE_encode_xer,
-	0, 0,	/* No OER support, use "-gen-OER" to enable */
+#ifdef ASN_DISABLE_OER_SUPPORT
+	0, 0,
+#else
+	0,	/* Decoded only through its parent, which selects the type */
+	OPEN_TYPE_encode_oer,
+#endif
 #ifdef ASN_DISABLE_PER_SUPPORT
 	0, 0,
 #else
@@ -398,5 +403,41 @@ OPEN_TYPE_encode_uper(const asn_TYPE_descriptor_t *td,
     ASN__ENCODED_OK(er);
 }
 
+
+asn_dec_rval_t
+OPEN_TYPE_uper_get_element(const asn_codec_ctx_t *opt_codec_ctx,
+                           const asn_TYPE_descriptor_t *list_type,
+                           const void *list, const asn_TYPE_member_t *elm,
+                           void **element_ptr, asn_per_data_t *pd) {
+    const asn_CHOICE_specifics_t *cspecs;
+    asn_type_selector_result_t selected;
+    void *inner_value;
+    asn_dec_rval_t rv;
+
+    if(!(elm->flags & ATF_OPEN_TYPE) || !elm->type_selector) {
+        ASN__DECODE_FAILED;
+    }
+    selected = elm->type_selector(list_type, list);
+    if(!selected.presence_index
+       || selected.presence_index > elm->type->elements_count) {
+        ASN__DECODE_FAILED;
+    }
+    cspecs = (const asn_CHOICE_specifics_t *)elm->type->specifics;
+    if(!*element_ptr) {
+        *element_ptr = CALLOC(1, cspecs->struct_size);
+        if(!*element_ptr) ASN__DECODE_FAILED;
+    }
+
+    inner_value = (char *)*element_ptr
+                  + elm->type->elements[selected.presence_index - 1].memb_offset;
+    rv = uper_open_type_get(opt_codec_ctx, selected.type_descriptor, NULL,
+                            &inner_value, pd);
+    if(rv.code == RC_OK
+       && CHOICE_variant_set_presence(elm->type, *element_ptr,
+                                      selected.presence_index) != 0) {
+        rv.code = RC_FAIL;
+    }
+    return rv;
+}
 
 #endif  /* ASN_DISABLE_PER_SUPPORT */

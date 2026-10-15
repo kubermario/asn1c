@@ -790,6 +790,23 @@ asn1f_check_duplicate(arg_t *arg) {
 					continue;
 			}
 
+			/*
+			 * Same module, names differing only by case (TS 103 882 MVM-PDU-Descriptions:
+			 * the PDU MVM and its content Mvm). Module prefixes cannot tell them apart,
+			 * and on a case-insensitive filesystem MVM.h and Mvm.h are ONE file: the
+			 * content overwrote the PDU. The later definition takes a "2" suffix.
+			 */
+			if(tmparg.expr->module == arg->expr->module
+			   && strcmp(tmparg.expr->Identifier, arg->expr->Identifier)) {
+				LOG(0, "Case-variant names in module %s: \"%s\" (line %d) vs \"%s\" (line %d); "
+				       "the later one is generated as \"%s2\"",
+				       arg->expr->module->ModuleName, tmparg.expr->Identifier,
+				       tmparg.expr->_lineno, arg->expr->Identifier, arg->expr->_lineno,
+				       arg->expr->Identifier);
+				arg->expr->_mark |= TM_CASECLASH;
+				continue;
+			}
+
 			/* resolve clash of Identifier in different modules */
 			int oid_exist = (tmparg.expr->module->module_oid && arg->expr->module->module_oid);
 			if ((!oid_exist && strcmp(tmparg.expr->module->ModuleName, arg->expr->module->ModuleName)) ||

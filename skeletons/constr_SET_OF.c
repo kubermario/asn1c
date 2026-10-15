@@ -5,6 +5,7 @@
  */
 #include <asn_internal.h>
 #include <constr_SET_OF.h>
+#include <OPEN_TYPE.h>
 #include <asn_SET_OF.h>
 
 /*
@@ -965,6 +966,10 @@ SET_OF_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 		for(i = 0; i < nelems; i++) {
 			void *ptr = 0;
 			ASN_DEBUG("SET OF %s decoding", elm->type->name);
+			if(elm->flags & ATF_OPEN_TYPE)	/* typed by the container */
+				rv = OPEN_TYPE_uper_get_element(opt_codec_ctx, td, st,
+					elm, &ptr, pd);
+			else
 			rv = elm->type->op->uper_decoder(opt_codec_ctx, elm->type,
 				elm->encoding_constraints.per_constraints, &ptr, pd);
 			ASN_DEBUG("%s SET OF %s decoded %d, %p",

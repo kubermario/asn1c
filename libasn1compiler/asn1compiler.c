@@ -5,6 +5,7 @@
 #include "asn1c_misc.h"  // for arg_t
 #include "asn1p_expr.h"      // for TM_NAMECLASH and _mark
 #include "clash_map.h"       // for map-based clash resolution
+#include "asn1fix_export.h"  // class-alias lookup
 static int prompt_clash_resolution(arg_t *arg) {
 	char input[32];
 	printf("\n[asn1c] Name clash detected for type '%s' in module '%s'.\n",
@@ -123,6 +124,26 @@ asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_
 			}
 
 			arg->ns = asn1_namespace_new_from_module(mod, 0);
+
+			/*
+			 * A class alias (MRS "C-ASR-EV ::= C-2ENT") names an information object
+			 * class, not a type: there is nothing to generate, and a typedef of the
+			 * class's non-existent C type would not compile.
+			 */
+			if(arg->expr->meta_type == AMT_TYPEREF && arg->expr->reference
+			   && !arg->expr->lhs_params) {
+				asn1p_expr_t *t = arg->expr;
+				for(int hops = 0; t && t->meta_type == AMT_TYPEREF && t->reference
+				                  && hops < 16; hops++)
+					t = asn1f_lookup_symbol_ex(asn, arg->ns, t, t->reference);
+				if(t && t->meta_type == AMT_OBJECTCLASS) {
+					DEBUG("Skipping class alias %s", arg->expr->Identifier);
+					arg->expr->_mark |= TM_CLASSALIAS;
+					asn1_namespace_free(arg->ns);
+					arg->ns = 0;
+					continue;
+				}
+			}
 
 			compiler_streams_t *cs = NULL;
 
