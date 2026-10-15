@@ -3066,11 +3066,19 @@ emit_type_DEF(arg_t *arg, asn1p_expr_t *expr, enum tvm_compat tv_mode, int tags_
 			OUT("0,\t/* No tags (count) */\n");
 		}
 
+		/*
+		 * Same test as emit_member_{OER,PER}_constraints(), which resolve an
+		 * alias to its terminal: an alias of a CHOICE (ITSaid ::= VarLengthNumber,
+		 * BlindedKey, T-APDUs...) got its constraint tables emitted but its
+		 * descriptor pointing at none, and a CHOICE without its PER constraint
+		 * cannot encode the alternative index.
+		 */
+		asn1p_expr_type_e etype = expr_get_type(arg, expr);
 		OUT("{ ");
 		if(arg->flags & A1C_GEN_OER) {
 			if(expr->combined_constraints
-			|| expr->expr_type == ASN_BASIC_ENUMERATED
-			|| expr->expr_type == ASN_CONSTR_CHOICE) {
+			|| etype == ASN_BASIC_ENUMERATED
+			|| etype == ASN_CONSTR_CHOICE) {
 				OUT("&asn_OER_type_%s_constr_%d",
 					expr_id, expr->_type_unique_index);
 			} else {
@@ -3083,9 +3091,9 @@ emit_type_DEF(arg_t *arg, asn1p_expr_t *expr, enum tvm_compat tv_mode, int tags_
 
 		if(arg->flags & A1C_GEN_PER) {
             if(expr->combined_constraints
-               || expr->expr_type == ASN_BASIC_ENUMERATED
-               || expr->expr_type == ASN_CONSTR_CHOICE
-               || (expr->expr_type & ASN_STRING_KM_MASK)) {
+               || etype == ASN_BASIC_ENUMERATED
+               || etype == ASN_CONSTR_CHOICE
+               || (etype & ASN_STRING_KM_MASK)) {
                 OUT("&asn_PER_type_%s_constr_%d",
 					expr_id, expr->_type_unique_index);
 			} else {
