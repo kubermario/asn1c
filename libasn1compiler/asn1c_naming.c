@@ -259,6 +259,28 @@ c_member_name(arg_t *arg, asn1p_expr_t *expr) {
     abuf_str(&ab, "_");
     abuf_str(&ab, asn1c_make_identifier(0, expr, 0));
 
+    /*
+     * An enumerator spelled like one of the per-type functions asn1c emits
+     * (PA TS 103 916 ParkingFeeType { free(0), ... }) would produce
+     * ParkingFeeType_free twice: once as the enum constant, once as the
+     * asn_struct_free_f. Suffix the enumerator, never the function.
+     */
+    if(expr->expr_type == A1TC_UNIVERVAL && expr->Identifier) {
+        static const char *fn_suffixes[] = {
+            "free", "print", "constraint", "compare", "copy", "random_fill",
+            "decode_ber", "encode_der", "decode_xer", "encode_xer",
+            "decode_jer", "encode_jer", "decode_oer", "encode_oer",
+            "decode_uper", "encode_uper", "decode_aper", "encode_aper"
+        };
+        const char *id = asn1c_make_identifier(0, expr, 0);
+        for(size_t i = 0; i < sizeof(fn_suffixes) / sizeof(fn_suffixes[0]); i++) {
+            if(strcmp(id, fn_suffixes[i]) == 0) {
+                abuf_str(&ab, "_");
+                break;
+            }
+        }
+    }
+
     return ab.buffer;
 }
 
