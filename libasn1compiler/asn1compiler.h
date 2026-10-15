@@ -102,6 +102,9 @@ enum asn1c_flags {
 /*
  * Compile the ASN.1 specification.
  */
+/* -fsplit-specializations=<Name>[,...] (see asn1c_misc.h). */
+void asn1c_set_split_specializations(const char *comma_list);
+
 int asn1_compile(asn1p_t *asn, const char *datadir, const char *destdir, enum asn1c_flags,
 	int argc, int optc, char **argv,
 	int clash_interactive, const char *clash_policy, const char *clash_map_file);

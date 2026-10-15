@@ -136,19 +136,16 @@ asn1c_get_ioc_table(arg_t *arg) {
  */
 static int
 ioc_value_already_emitted(arg_t *arg, const char *name) {
-    static char file_key[512];
+    static const void *file_key;
     static char **names;
     static size_t count, size;
-    char key[512];
 
-    /* The C file, not the expression: the specializations of one parameterized
-     * type are distinct expressions emitted into the same file. */
-    snprintf(key, sizeof(key), "%s/%s", arg->expr->module->ModuleName,
-             arg->expr->Identifier);
-    if(strcmp(file_key, key)) {
+    /* The output streams ARE the C file: the specializations of one
+     * parameterized type share the template's (or, split, get their own). */
+    if(file_key != (const void *)arg->target) {
         for(size_t i = 0; i < count; i++) free(names[i]);
         count = 0;
-        snprintf(file_key, sizeof(file_key), "%s", key);
+        file_key = arg->target;
     }
     for(size_t i = 0; i < count; i++)
         if(strcmp(names[i], name) == 0) return 1;

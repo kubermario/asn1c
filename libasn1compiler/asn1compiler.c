@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 // ...existing code...
-#include "asn1c_internal.h"  // for arg_t
+#include "asn1c_internal.h"
+#include "asn1c_misc.h"  // for arg_t
 #include "asn1p_expr.h"      // for TM_NAMECLASH and _mark
 #include "clash_map.h"       // for map-based clash resolution
 static int prompt_clash_resolution(arg_t *arg) {
@@ -45,6 +46,7 @@ static int prompt_clash_resolution(arg_t *arg) {
 	}
 }
 #include "asn1c_internal.h"
+#include "asn1c_misc.h"
 #include "asn1c_lang.h"
 #include "asn1c_out.h"
 #include "asn1c_save.h"
@@ -241,7 +243,14 @@ asn1c_compile_expr(arg_t *arg, const asn1c_ioc_table_and_objset_t *opt_ioc) {
 				      i, spec_clone->Identifier ? spec_clone->Identifier : "(anonymous)",
 				      spec_clone->spec_index, spec_clone->meta_type, spec_clone->expr_type);
 				arg->expr = spec_clone;
+				compiler_streams_t *saved_target = arg->target;
+				if(asn1c_split_specialization(spec_clone)) {
+					if(asn1c_attach_streams(spec_clone)) return -1;
+					arg->target = spec_clone->data;
+					arg->target->target = OT_TYPE_DECLS;
+				}
 				ret = asn1c_compile_expr(arg, opt_ioc);
+				arg->target = saved_target;
 				if(ret) {
 					DEBUG("  Specialization %d compilation failed with ret=%d", i, ret);
 					break;

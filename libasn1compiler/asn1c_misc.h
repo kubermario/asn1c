@@ -30,6 +30,14 @@ enum tnfmt {
 const char *asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format);
 
 /*
+ * -fsplit-specializations=<Name>[,<Name>...]: the specializations of these
+ * parameterized types (named as their C type, e.g. Itsee_Extension) are each
+ * written to their own .c/.h instead of sharing the template's file.
+ */
+void asn1c_set_split_specializations(const char *comma_list);
+int asn1c_split_specialization(asn1p_expr_t *expr);
+
+/*
  * Check whether the specified INTEGER or ENUMERATED type can be represented
  * using the generic 'long' type.
  * Return values:

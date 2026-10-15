@@ -400,6 +400,21 @@ asn1c_save_compiled_output(arg_t *arg, const char *datadir, const char *destdir,
 
                 if(asn1_lang_map[arg->expr->meta_type][arg->expr->expr_type]
                        .type_cb) {
+                    if(arg->expr->lhs_params && arg->expr->spec_index == -1
+                       && asn1c_split_specialization(arg->expr)) {
+                        /* One file per specialization; the template has none. */
+                        asn1p_expr_t *tmpl = arg->expr;
+                        for(int i = 0; i < tmpl->specializations.pspecs_count; i++) {
+                            asn1p_expr_t *clone = tmpl->specializations.pspec[i].my_clone;
+                            if(!clone || !clone->data) continue;
+                            arg->expr = clone;
+                            ret = asn1c_dump_streams(arg, deps, destdir, optc, argv);
+                            if(ret) break;
+                        }
+                        arg->expr = tmpl;
+                        if(ret) break;
+                        continue;
+                    }
                     ret = asn1c_dump_streams(arg, deps, destdir, optc, argv);
                     if(ret) break;
                 }

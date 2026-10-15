@@ -49,6 +49,34 @@ module_prefix_of(asn1p_expr_t *expr) {
 	const char *short_pfx = asn1f_get_module_short_prefix(expr->module->ModuleName);
 	return short_pfx ? short_pfx : expr->module->ModuleName;
 }
+static char *split_specializations;   /* ",A,B," or NULL */
+
+void
+asn1c_set_split_specializations(const char *comma_list) {
+	free(split_specializations);
+	split_specializations = NULL;
+	if(comma_list && *comma_list) {
+		size_t n = strlen(comma_list) + 3;
+		split_specializations = malloc(n);
+		snprintf(split_specializations, n, ",%s,", comma_list);
+	}
+}
+
+static const char *module_prefix_of(asn1p_expr_t *expr);
+static const char *module_sep_of(asn1p_expr_t *expr);
+
+/* Is EXPR (a parameterized type or one of its specializations) to be split? */
+int
+asn1c_split_specialization(asn1p_expr_t *expr) {
+	char name[512];
+	if(!split_specializations || !expr || !expr->Identifier) return 0;
+	if(!expr->lhs_params && expr->spec_index == -1) return 0;
+	snprintf(name, sizeof(name), ",%s%s%s,", module_prefix_of(expr),
+	         module_sep_of(expr), expr->Identifier);
+	for(char *p = name; *p; p++) if(*p == '-') *p = '_';
+	return strstr(split_specializations, name) != NULL;
+}
+
 static const char *
 module_sep_of(asn1p_expr_t *expr) {
 	if(!expr || !(expr->_mark & TM_NAMECLASH))
@@ -345,6 +373,12 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 		return asn1c_make_identifier(AMI_MASK_ONLY_SPACES | AMI_NODELIMITER,
 			0, module_prefix_of(exprid), module_sep_of(exprid), exprid ? exprid->Identifier : typename, (char*)0);
 	case TNF_INCLUDE:
+		if(exprid && exprid->spec_index != -1 && asn1c_split_specialization(exprid)) {
+			static char ibuf[512];
+			snprintf(ibuf, sizeof(ibuf), "\"%s.h\"",
+			         asn1c_make_identifier(AMI_MASK_ONLY_SPACES, exprid, (char*)0));
+			return ibuf;
+		}
 		return asn1c_make_identifier(
 			AMI_MASK_ONLY_SPACES | AMI_NODELIMITER,
 			0, ((!stdname || (arg->flags & A1C_INCLUDES_QUOTED))
