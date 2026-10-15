@@ -127,10 +127,49 @@ asn1c_get_ioc_table(arg_t *arg) {
     return asn1c_get_ioc_table_from_objset(arg, objset_ref, objset);
 }
 
+/*
+ * One information object can belong to several object sets that end up in the
+ * same C file (TS 103 759 v2.2.1: the security observations are in both the
+ * CAM and the DENM observation sets of MbSingleObservation). Its value constant
+ * asn_VAL_<index>_<name> is the same definition each time; emitting it twice is
+ * a C redefinition error. Remember what this file already has.
+ */
+static int
+ioc_value_already_emitted(arg_t *arg, const char *name) {
+    static char file_key[512];
+    static char **names;
+    static size_t count, size;
+    char key[512];
+
+    /* The C file, not the expression: the specializations of one parameterized
+     * type are distinct expressions emitted into the same file. */
+    snprintf(key, sizeof(key), "%s/%s", arg->expr->module->ModuleName,
+             arg->expr->Identifier);
+    if(strcmp(file_key, key)) {
+        for(size_t i = 0; i < count; i++) free(names[i]);
+        count = 0;
+        snprintf(file_key, sizeof(file_key), "%s", key);
+    }
+    for(size_t i = 0; i < count; i++)
+        if(strcmp(names[i], name) == 0) return 1;
+    if(count == size) {
+        size = size ? 2 * size : 16;
+        names = realloc(names, size * sizeof(*names));
+        assert(names);
+    }
+    names[count++] = strdup(name);
+    return 0;
+}
+
 static int
 emit_ioc_value(arg_t *arg, struct asn1p_ioc_cell_s *cell) {
 
     if(cell->value && cell->value->meta_type == AMT_VALUE) {
+        char key[512];
+        snprintf(key, sizeof(key), "%d_%s", cell->value->_type_unique_index,
+                 MKID(cell->value));
+        if(ioc_value_already_emitted(arg, key)) return 0;
+
         const char *prim_type = NULL;
         int primitive_representation = 0;
 
@@ -245,7 +284,21 @@ emit_ioc_cell(arg_t *arg, struct asn1p_ioc_cell_s *cell) {
 
     } else if(cell->value->meta_type == AMT_TYPEREF) {
         GEN_INCLUDE(asn1c_type_name(arg, cell->value, TNF_INCLUDE));
-        OUT("aioc__type, &asn_DEF_%s", MKID(cell->value));
+        /*
+         * Name the DEFINITION, not the reference: a definition compound-named
+         * on a clash (ISO 16460 ITSee1 IPv6Address -> Itsee_IPv6Address) or
+         * suppressed as a duplicate has no asn_DEF_<reference name>.
+         */
+        asn1p_expr_t *def = NULL;
+        if(cell->value->reference) {
+            def = WITH_MODULE_NAMESPACE(
+                cell->value->module, expr_ns,
+                asn1f_lookup_symbol_ex(arg->asn, expr_ns, cell->value,
+                                       cell->value->reference));
+        }
+        while(def && (def->_mark & TM_SUPPRESSED) && def->suppressed_by)
+            def = def->suppressed_by;
+        OUT("aioc__type, &asn_DEF_%s", MKID(def && !def->lhs_params ? def : cell->value));
     } else {
         return -1;
     }
