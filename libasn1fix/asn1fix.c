@@ -190,6 +190,7 @@ static int asn1f_fix_constructed(arg_t *arg);	/* For SEQUENCE/SET/CHOICE */
 static int asn1f_resolve_constraints(arg_t *arg); /* For subtype constraints */
 static int asn1f_check_constraints(arg_t *arg);	/* For subtype constraints */
 static int asn1f_check_duplicate(arg_t *arg);
+static void asn1f_check_template_duplicate(arg_t *arg);
 static int asn1f_apply_unique_index(arg_t *arg);
 static int phase_1_1(arg_t *arg, int prm2);
 
@@ -510,6 +511,7 @@ phase_1_1(arg_t *arg, int prm2) {
 		if(!prm2)
 			/* Do not process the parameterized type just yet */
 			return 0;
+		asn1f_check_template_duplicate(arg);
 		for(i = 0; i < expr->specializations.pspecs_count; i++) {
 			arg->expr = expr->specializations.pspec[i].my_clone;
 			ret = phase_1_1(arg, 0);
@@ -692,6 +694,55 @@ asn1f_check_constraints(arg_t *arg) {
 	return rvalue;
 }
 
+/* Compound-name a parameterized type and every specialization already forked from it. */
+static void
+mark_template_nameclash(asn1p_expr_t *tmpl) {
+	tmpl->_mark |= TM_NAMECLASH;
+	for(int i = 0; i < tmpl->specializations.pspecs_count; i++)
+		if(tmpl->specializations.pspec[i].my_clone)
+			tmpl->specializations.pspec[i].my_clone->_mark |= TM_NAMECLASH;
+}
+
+/*
+ * asn1f_check_duplicate() skips parameterized types, so two modules defining a
+ * template with the same name were never told apart: IEEE 1609.2's
+ * Extension {EXT-TYPE : ExtensionTypes} and ISO 16460 ITSee1's emitted their
+ * specializations into the same Extension.c/.h, one module's overwriting the
+ * other's. Compound-name the lower-precedence template (both when the priority
+ * file cannot tell them apart), including the specializations it already has.
+ */
+static void
+asn1f_check_template_duplicate(arg_t *arg) {
+	asn1p_module_t *mod;
+	asn1p_expr_t *other;
+
+	TQ_FOR(mod, &arg->asn->modules, mod_next) {
+		if(mod == arg->expr->module) continue;
+		TQ_FOR(other, &(mod->members), next) {
+			if(other == arg->expr || !other->lhs_params || other->spec_index != -1)
+				continue;
+			if(strcmp(other->Identifier, arg->expr->Identifier))
+				continue;
+			int prio_cur = get_module_priority(arg->expr->module->ModuleName);
+			int prio_other = get_module_priority(other->module->ModuleName);
+			if(prio_cur != -1 && prio_other != -1 && prio_cur != prio_other) {
+				asn1p_expr_t *loser = prio_cur > prio_other ? arg->expr : other;
+				LOG(0, "Smart resolution: compound-naming parameterized '%s' from %s "
+				       "(same name in %s and %s)", loser->Identifier,
+				       loser->module->ModuleName, arg->expr->module->ModuleName,
+				       other->module->ModuleName);
+				mark_template_nameclash(loser);
+			} else {
+				LOG(0, "Smart resolution: compound-naming parameterized '%s' from %s and %s",
+				       arg->expr->Identifier, arg->expr->module->ModuleName,
+				       other->module->ModuleName);
+				mark_template_nameclash(arg->expr);
+				mark_template_nameclash(other);
+			}
+		}
+	}
+}
+
 static int
 asn1f_check_duplicate(arg_t *arg) {
 	arg_t tmparg = *arg;
@@ -764,12 +815,14 @@ asn1f_check_duplicate(arg_t *arg) {
 								       prio_other, prio_current);
 								tmparg.expr->_mark |= TM_SUPPRESSED;
 								tmparg.expr->suppressed_by = arg->expr;
+								if(tmparg.expr->_type_referenced) arg->expr->_type_referenced = 1;
 							} else {
 								LOG(0, "Smart resolution: suppressing '%s' from %s (structurally equal, priority %d vs %d)",
 								       arg->expr->Identifier, arg->expr->module->ModuleName,
 								       prio_current, prio_other);
 								arg->expr->_mark |= TM_SUPPRESSED;
 								arg->expr->suppressed_by = tmparg.expr;
+								if(arg->expr->_type_referenced) tmparg.expr->_type_referenced = 1;
 							}
 							continue;
 						}
@@ -810,6 +863,7 @@ asn1f_check_duplicate(arg_t *arg) {
 						       arg->expr->module->ModuleName, prio_current);
 						tmparg.expr->_mark |= TM_SUPPRESSED;
 						tmparg.expr->suppressed_by = arg->expr;
+						if(tmparg.expr->_type_referenced) arg->expr->_type_referenced = 1;
 						continue;
 					}
 

@@ -56,6 +56,20 @@ static int emit_member_table(arg_t *arg, asn1p_expr_t *expr,
 static int emit_tag2member_map(arg_t *arg, tag2el_t *tag2el, int tag2el_count, const char *opt_modifier);
 static int emit_include_dependencies(arg_t *arg);
 static asn1p_expr_t *terminal_structable(arg_t *arg, asn1p_expr_t *expr);
+
+/*
+ * A type suppressed as a structural duplicate of a higher-priority one emits no
+ * tables of its own; whatever aliases it must use the winner's. asn1c_type_name()
+ * already redirects the typedef (ITSaid_t -> Cdd_VarLengthNumber_t), so the
+ * descriptor's asn_MBR_/asn_SPC_ references must follow the same way, or they
+ * name tables that do not exist (asn_MBR_CitsDd_VarLengthNumber_1).
+ */
+static asn1p_expr_t *
+follow_suppression(asn1p_expr_t *terminal) {
+	while(terminal && (terminal->_mark & TM_SUPPRESSED) && terminal->suppressed_by)
+		terminal = terminal->suppressed_by;
+	return terminal;
+}
 static int expr_defined_recursively(arg_t *arg, asn1p_expr_t *expr);
 static int asn1c_recurse(arg_t *arg, asn1p_expr_t *expr, int (*callback)(arg_t *arg, void *key), void *key);
 static asn1p_expr_type_e expr_get_type(arg_t *arg, asn1p_expr_t *expr);
@@ -957,8 +971,10 @@ asn1c_lang_C_type_CHOICE(arg_t *arg) {
 	OUT("typedef %s {\n", c_name(arg).presence_enum);
 	INDENTED(
 		int skipComma = 1;
+		int position = 0;
         OUT("%s,\t/* No components present */\n", c_presence_name(arg, 0));
 		TQ_FOR(v, &(expr->members), next) {
+			position++;
 			if(skipComma) skipComma = 0;
 			else if (v->expr_type == A1TC_EXTENSIBLE && !TQ_NEXT(v, next)) OUT("\n");
 			else OUT(",\n");
@@ -968,6 +984,14 @@ asn1c_lang_C_type_CHOICE(arg_t *arg) {
 				continue;
 			}
             OUT("%s", c_presence_name(arg, v));
+			/*
+			 * An open type whose object set maps one type to several ids
+			 * (ISO 16460 ChInfoTypes: NullType for both "unknown" and "any")
+			 * repeats that alternative; the union skips the copy
+			 * (TM_SKIPinUNION) but the enumerator must stay — its position is
+			 * the row the IOC table selects — so give it a distinct name.
+			 */
+			if(v->_mark & TM_SKIPinUNION) OUT("_%d", position);
 		}
 		OUT("\n");
 	);
@@ -2949,7 +2973,7 @@ emit_type_DEF(arg_t *arg, asn1p_expr_t *expr, enum tvm_compat tv_mode, int tags_
 	char *p = expr_id;
 	char *p2 = (char *)0;
 
-	terminal = asn1f_find_terminal_type_ex(arg->asn, arg->ns, expr);
+	terminal = follow_suppression(asn1f_find_terminal_type_ex(arg->asn, arg->ns, expr));
 
 	if(emit_member_OER_constraints(arg, expr, "type"))
 		return -1;
@@ -3332,7 +3356,7 @@ expr_break_recursion(arg_t *arg, asn1p_expr_t *expr) {
 static asn1p_expr_t *
 terminal_structable(arg_t *arg, asn1p_expr_t *expr) {
     asn1p_expr_t *terminal =
-        asn1f_find_terminal_type_ex(arg->asn, arg->ns, expr);
+        follow_suppression(asn1f_find_terminal_type_ex(arg->asn, arg->ns, expr));
     if(terminal
 	&& !terminal->parent_expr
 	&& (terminal->expr_type & ASN_CONSTR_MASK)) {

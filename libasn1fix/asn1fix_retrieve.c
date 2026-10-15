@@ -592,6 +592,11 @@ asn1f_find_terminal_thing(arg_t *arg, asn1p_expr_t *expr, enum ftt_what what) {
     }
 
     tc->_type_referenced = 1;
+    /* A reference to a suppressed duplicate is compiled against its winner,
+     * whose tables must therefore be exported too. */
+    for(asn1p_expr_t *w = tc; (w->_mark & TM_SUPPRESSED) && w->suppressed_by;
+        w = w->suppressed_by)
+        w->suppressed_by->_type_referenced = 1;
 
     if((what == FTT_CONSTR_TYPE) && (tc->constraints)) {
         return tc;
