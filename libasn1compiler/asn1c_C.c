@@ -2837,8 +2837,11 @@ emit_member_type_selector(arg_t *arg, asn1p_expr_t *expr, asn1c_ioc_table_and_ob
     OUT("size_t row;\n");
     if(listed) {
         /* parent_sptr is the list; the identifier is beside it */
-        OUT("parent_sptr = (const char *)parent_sptr - offsetof(%s, %s);\n",
-            c_name(holder).full_name, MKID_safe(listed_ot.inner));
+        /* Two OUTs: c_name() and MKID_safe() share asn1c_make_identifier()'s static
+         * buffer, and the order a compiler evaluates arguments in is unspecified (gcc
+         * overwrote the member name with the struct name: offsetof(struct X, X)). */
+        OUT("parent_sptr = (const char *)parent_sptr - offsetof(%s", c_name(holder).full_name);
+        OUT(", %s);\n", MKID_safe(listed_ot.inner));
     }
 
     const char *tname = asn1c_type_name(arg, constraining_memb, TNF_SAFE);
