@@ -410,7 +410,9 @@ asn1c_type_name(arg_t *arg, asn1p_expr_t *expr, enum tnfmt _format) {
 		 * named a struct nobody defines (it compiled only because a list holds
 		 * pointers, and left the element's type unknowable from the header).
 		 */
-		if(exprid && exprid->spec_index != -1) {
+		/* A case-clash rename ("Mim" -> "Mim2") names its struct "Mim2" too:
+		 * "struct Mim" in a referencing list was a struct nobody defines. */
+		if(exprid && (exprid->spec_index != -1 || (exprid->_mark & TM_CASECLASH))) {
 			static char sbuf[512];
 			snprintf(sbuf, sizeof(sbuf), "struct %s",
 			         asn1c_make_identifier(0, exprid, (char*)0));

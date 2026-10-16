@@ -106,7 +106,47 @@ static void free_priority_map(void) {
  *  -1 = constraint-variant (same base type, different constraints)
  *       Used for priority-based resolution: only rename the lower-priority type
  */
+static int asn1f_types_structurally_equal_depth(asn1p_expr_t *a, asn1p_expr_t *b, int depth);
+
 static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
+	return asn1f_types_structurally_equal_depth(a, b, 0);
+}
+
+/*
+ * The definition a module sees under a type name: its own, or the one it
+ * imports (one hop). NULL when neither is found.
+ */
+static asn1p_t *asn1f_equal_modules;	/* the module set asn1f_process() works on */
+
+static asn1p_expr_t *
+asn1f_visible_type(asn1p_module_t *mod, const char *name) {
+	asn1p_expr_t *e;
+	asn1p_xports_t *xp;
+	if(!mod || !name) return NULL;
+	TQ_FOR(e, &(mod->members), next) {
+		if(e->Identifier && strcmp(e->Identifier, name) == 0) return e;
+	}
+	TQ_FOR(xp, &(mod->imports), xp_next) {
+		asn1p_expr_t *im;
+		TQ_FOR(im, &(xp->xp_members), next) {
+			if(im->Identifier && strcmp(im->Identifier, name) == 0) {
+				asn1p_module_t *from;
+				if(!asn1f_equal_modules || !xp->fromModuleName) return NULL;
+				TQ_FOR(from, &(asn1f_equal_modules->modules), mod_next) {
+					if(!from->ModuleName || strcmp(from->ModuleName, xp->fromModuleName) != 0) continue;
+					TQ_FOR(e, &(from->members), next) {
+						if(e->Identifier && strcmp(e->Identifier, name) == 0)
+							return e;
+					}
+				}
+				return NULL;
+			}
+		}
+	}
+	return NULL;
+}
+
+static int asn1f_types_structurally_equal_depth(asn1p_expr_t *a, asn1p_expr_t *b, int depth) {
 	if(!a || !b) return 0;
 
 	/* Count members */
@@ -139,6 +179,13 @@ static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
 	/* One has members, the other doesn't */
 	if(count_a != count_b) return 0;
 
+	/*
+	 * Equal on the surface, but a member names a different type in each
+	 * module: answered as a variant (-1), so only the lower-priority one is
+	 * renamed and the higher-priority type keeps its name.
+	 */
+	int deep_differs = 0;
+
 	/* Walk both member lists in parallel */
 	ma = TQ_FIRST(&(a->members));
 	mb = TQ_FIRST(&(b->members));
@@ -160,6 +207,30 @@ static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
 				if(strcmp(ma->reference->components[0].name,
 				          mb->reference->components[0].name) != 0)
 					return 0;
+				/*
+				 * Same name, but each module may see a different type under
+				 * it: ISO 16460 ThreeDLocation's Latitude is a SEQUENCE
+				 * { fillBit, lat }, IEEE 1609.2's an INTEGER. Compare the
+				 * definitions behind a name that both modules define, so a
+				 * container of different types is not merged into the other.
+				 */
+				if(depth < 1 && ma->reference->comp_count == 1
+				   && mb->reference->comp_count == 1) {
+					asn1p_expr_t *ta = asn1f_visible_type(a->module,
+						ma->reference->components[0].name);
+					asn1p_expr_t *tb = asn1f_visible_type(b->module,
+						mb->reference->components[0].name);
+					if(ta && tb && ta != tb) {
+						int ma_members = 0, mb_members = 0;
+						asn1p_expr_t *x;
+						TQ_FOR(x, &(ta->members), next) { ma_members++; }
+						TQ_FOR(x, &(tb->members), next) { mb_members++; }
+						/* Constructed on either side: structure decides */
+						if((ma_members || mb_members)
+						   && asn1f_types_structurally_equal_depth(ta, tb, depth + 1) == 0)
+							deep_differs = 1;
+					}
+				}
 			}
 		} else if(!ma->reference && !mb->reference) {
 			/* Both are built-in types — compare expr_type */
@@ -174,7 +245,7 @@ static int asn1f_types_structurally_equal(asn1p_expr_t *a, asn1p_expr_t *b) {
 		mb = TQ_NEXT(mb, next);
 	}
 
-	return 1; /* All members matched */
+	return deep_differs ? -1 : 1; /* All members matched */
 }
 
 /* Print everything to stderr */
@@ -224,6 +295,7 @@ asn1f_process(asn1p_t *asn, enum asn1f_flags flags,
 
 	memset(&arg, 0, sizeof(arg));
 	arg.asn = asn;
+	asn1f_equal_modules = asn;
 	arg.eh = error_logger;
 
 	if(flags & A1F_DEBUG) {
