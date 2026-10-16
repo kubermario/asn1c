@@ -1328,10 +1328,22 @@ INTEGER_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
                 0, sizeof(variants) / sizeof(variants[0]) - 1)];
         }
 
-        if(!constraints) constraints = &td->encoding_constraints;
+        /* A member without constraints of its own gets an empty set here, not
+         * NULL: fall back to the type's (OrdinalNumber1B ::= INTEGER(0..255)
+         * drew -65536), as OCTET STRING, BIT STRING and SET OF already do. */
+        if(!constraints || !constraints->per_constraints)
+            constraints = &td->encoding_constraints;
         ct = constraints ? constraints->per_constraints : 0;
         if(ct && (ct->value.flags & APC_CONSTRAINED)) {
-            if(value < ct->value.lower_bound || value > ct->value.upper_bound) {
+            if(ct->value.lower_bound > ct->value.upper_bound) {
+                /* An upper bound past LONG_MAX (Uint64 ::= INTEGER
+                 * (0..18446744073709551615)) wraps negative: only the lower
+                 * bound is checkable here. */
+                if(value < ct->value.lower_bound)
+                    value = ct->value.lower_bound
+                            + asn_random_between(0, 65537);
+            } else if(value < ct->value.lower_bound
+                      || value > ct->value.upper_bound) {
                 value = asn_random_between(ct->value.lower_bound,
                                            ct->value.upper_bound);
             }

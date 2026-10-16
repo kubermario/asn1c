@@ -1585,11 +1585,20 @@ SEQUENCE_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
         void *memb_ptr;   /* Pointer to the member */
         void **memb_ptr2; /* Pointer to that pointer */
         asn_random_fill_result_t tmpres;
+        size_t budget =
+            max_length > result_ok.length ? max_length - result_ok.length : 0;
 
-        if(elm->optional && asn_random_between(0, 4) == 2) {
+        if(elm->optional && (budget == 0 || asn_random_between(0, 4) == 2)) {
             /* Sometimes decide not to fill the optional value */
             continue;
         }
+
+        /*
+         * A mandatory member is drawn even when the length budget is spent:
+         * skipping it would leave a zeroed value, out of range for most
+         * constrained types, and the whole value would not encode.
+         */
+        if(budget == 0) budget = 1;
 
         if(elm->flags & ATF_POINTER) {
             /* Member is a pointer to another structure */
@@ -1608,7 +1617,7 @@ SEQUENCE_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
             int tries = 0;
             for(;;) {
                 tmpres = OPEN_TYPE_random_fill_selected(td, st, elm, memb_ptr2,
-                    max_length > result_ok.length ? max_length - result_ok.length : 0);
+                    budget);
                 if(tmpres.code != ARFILL_FAILED || edx == 0 || ++tries > 1024) break;
                 {
                     const asn_TYPE_member_t *prev = &td->elements[edx - 1];
@@ -1626,8 +1635,7 @@ SEQUENCE_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
             }
         } else
         tmpres = elm->type->op->random_fill(
-            elm->type, memb_ptr2, &elm->encoding_constraints,
-            max_length > result_ok.length ? max_length - result_ok.length : 0);
+            elm->type, memb_ptr2, &elm->encoding_constraints, budget);
         switch(tmpres.code) {
         case ARFILL_OK:
             result_ok.length += tmpres.length;
