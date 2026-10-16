@@ -3637,18 +3637,25 @@ static int compar_cameo(const void *ap, const void *bp) {
 	struct asn1p_type_tag_s atag, btag;
 	arg_t *arg = cameo_arg;
 
-    if(WITH_MODULE_NAMESPACE(a->expr->module, expr_ns,
+    /*
+     * A total order: equal keys fall back to the declaration index. qsort() is not
+     * stable and glibc and macOS break ties differently, so the same input gave a
+     * different map on each platform. Ties only occur in the CHOICE asn1c makes of an
+     * open type (two alternatives of one universal tag, e.g. two SEQUENCEs); a real
+     * CHOICE has distinct tags and keeps its order.
+     */
+    int afail = WITH_MODULE_NAMESPACE(a->expr->module, expr_ns,
                              asn1f_fetch_outmost_tag(
                                  arg->asn, expr_ns, a->expr->module, a->expr,
-                                 &atag, AFT_IMAGINARY_ANY | AFT_CANON_CHOICE)))
-        return 1;
-
-    if(WITH_MODULE_NAMESPACE(
+                                 &atag, AFT_IMAGINARY_ANY | AFT_CANON_CHOICE)) ? 1 : 0;
+    int bfail = WITH_MODULE_NAMESPACE(
            b->expr->module, expr_ns,
            asn1f_fetch_outmost_tag(arg->asn, expr_ns, b->expr->module, b->expr,
                                    &btag,
-                                   AFT_IMAGINARY_ANY | AFT_CANON_CHOICE))) {
-        return -1;
+                                   AFT_IMAGINARY_ANY | AFT_CANON_CHOICE)) ? 1 : 0;
+    if(afail || bfail) {
+        if(afail != bfail) return afail ? 1 : -1;   /* untagged ones last */
+        return (a->eidx > b->eidx) - (a->eidx < b->eidx);
     }
 
     if(atag.tag_class < btag.tag_class)
@@ -3659,6 +3666,6 @@ static int compar_cameo(const void *ap, const void *bp) {
 		return -1;
 	if(atag.tag_value > btag.tag_value)
 		return 1;
-	return 0;
+	return (a->eidx > b->eidx) - (a->eidx < b->eidx);
 
 }
