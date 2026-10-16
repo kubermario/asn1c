@@ -263,6 +263,29 @@ static int asn1f_check_constraints(arg_t *arg);	/* For subtype constraints */
 static int asn1f_check_duplicate(arg_t *arg);
 static void asn1f_check_template_duplicate(arg_t *arg);
 static int asn1f_apply_unique_index(arg_t *arg);
+
+/* Indexes above any asn1f_apply_unique_index() gives (it counts per top-level type). */
+static int late_unique_index = 1000000;
+
+static void
+index_unindexed_tree(asn1p_expr_t *e, int depth) {
+    asn1p_expr_t *m;
+    if(!e || depth > 64) return;
+    if(e->_type_unique_index == 0) e->_type_unique_index = ++late_unique_index;
+    TQ_FOR(m, &(e->members), next) index_unindexed_tree(m, depth + 1);
+}
+
+static void
+index_unindexed_specializations(asn1p_expr_t *e, int depth) {
+    asn1p_expr_t *m;
+    if(!e || depth > 64) return;
+    for(int i = 0; i < e->specializations.pspecs_count; i++) {
+        asn1p_expr_t *clone = e->specializations.pspec[i].my_clone;
+        index_unindexed_tree(clone, 0);
+        index_unindexed_specializations(clone, depth + 1);
+    }
+    TQ_FOR(m, &(e->members), next) index_unindexed_specializations(m, depth + 1);
+}
 static int phase_1_1(arg_t *arg, int prm2);
 
 arg_t a1f_replace_me_with_proper_interface_arg;
@@ -362,6 +385,20 @@ asn1f_process(asn1p_t *asn, enum asn1f_flags flags,
         if(ret == 1) warnings++;
         asn1_namespace_free(arg.ns);
         arg.ns = 0;
+    }
+
+    /*
+     * A specialization cloned while a later module was being fixed (EtsiTs103759Core
+     * using NonV2xPduEvidenceItem {SetMbEvDenm} after the template's own module had been
+     * indexed) never went through asn1f_apply_unique_index: its members kept index 0 and
+     * the code referenced asn_OER_memb_id_constr_0, which nothing declares. Whether that
+     * happened depended on the order of the input files. Index whatever is left.
+     */
+    TQ_FOR(arg.mod, &(asn->modules), mod_next) {
+        asn1p_expr_t *e;
+        TQ_FOR(e, &(arg.mod->members), next) {
+            index_unindexed_specializations(e, 0);
+        }
     }
 
     memset(&a1f_replace_me_with_proper_interface_arg, 0, sizeof(arg_t));
